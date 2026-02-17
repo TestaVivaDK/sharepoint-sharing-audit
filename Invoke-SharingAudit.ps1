@@ -476,10 +476,15 @@ if (-not $SkipOneDrive) {
 
         Write-Host "[$userIndex/$userCount] OneDrive: $displayName ($upn) [$($script:totalSharedItems) shared items found]"
 
-        # Get user's OneDrive
+        # Get user's default OneDrive
         try {
-            $drive = Invoke-WithRetry -ScriptBlock {
+            $drives = Invoke-WithRetry -ScriptBlock {
                 Get-MgUserDrive -UserId $user.Id
+            }
+            $drive = $drives | Select-Object -First 1
+            if (-not $drive) {
+                Write-Warning "  No OneDrive for $upn — skipping."
+                continue
             }
         }
         catch {
