@@ -600,3 +600,77 @@ if (-not $SkipSharePoint) {
     Write-Progress -Activity "Auditing SharePoint" -Completed -Id 1
     Write-Host "SharePoint audit complete.`n" -ForegroundColor Green
 }
+
+# ============================================================
+# Export Results
+# ============================================================
+
+if ($script:results.Count -eq 0) {
+    Write-Host "No shared items found. No report generated." -ForegroundColor Yellow
+}
+else {
+    $script:results | Export-Csv -Path $OutputPath -NoTypeInformation -Encoding UTF8
+    Write-Host "Report exported to: $OutputPath" -ForegroundColor Green
+    Write-Host "Total records: $($script:results.Count)" -ForegroundColor Green
+}
+
+# Clean up temp file
+if (Test-Path $tempPath) {
+    Remove-Item $tempPath -Force
+}
+
+# ============================================================
+# Console Summary
+# ============================================================
+
+if ($script:results.Count -gt 0) {
+    Write-Host "`n====================================" -ForegroundColor Cyan
+    Write-Host "       SHARING AUDIT SUMMARY        " -ForegroundColor Cyan
+    Write-Host "====================================`n" -ForegroundColor Cyan
+
+    # Total
+    Write-Host "Total shared items: $($script:results.Count)" -ForegroundColor White
+
+    # By sharing type
+    Write-Host "`nBreakdown by Sharing Type:" -ForegroundColor Yellow
+    $script:results | Group-Object SharingType | Sort-Object Count -Descending | ForEach-Object {
+        Write-Host ("  {0,-25} {1,6}" -f $_.Name, $_.Count)
+    }
+
+    # By shared-with type
+    Write-Host "`nBreakdown by Shared-With Type:" -ForegroundColor Yellow
+    $script:results | Group-Object SharedWithType | Sort-Object Count -Descending | ForEach-Object {
+        Write-Host ("  {0,-25} {1,6}" -f $_.Name, $_.Count)
+    }
+
+    # Anonymous links (high risk)
+    $anonymousCount = ($script:results | Where-Object { $_.SharingType -eq "Link-Anyone" } | Measure-Object).Count
+    if ($anonymousCount -gt 0) {
+        Write-Host "`n** WARNING: $anonymousCount anonymous (Anyone) links found **" -ForegroundColor Red
+    }
+
+    # External sharing
+    $externalCount = ($script:results | Where-Object { $_.SharedWithType -in @("External", "Guest") } | Measure-Object).Count
+    if ($externalCount -gt 0) {
+        Write-Host "** $externalCount items shared externally (External + Guest) **" -ForegroundColor Yellow
+    }
+
+    # Top 10 sharers
+    Write-Host "`nTop 10 Users by Shared Items:" -ForegroundColor Yellow
+    $script:results | Group-Object OwnerEmail | Sort-Object Count -Descending | Select-Object -First 10 | ForEach-Object {
+        $name = if ($_.Name) { $_.Name } else { "(unknown owner)" }
+        Write-Host ("  {0,-40} {1,6}" -f $name, $_.Count)
+    }
+
+    # By source
+    Write-Host "`nBy Source:" -ForegroundColor Yellow
+    $script:results | Group-Object Source | ForEach-Object {
+        Write-Host ("  {0,-25} {1,6}" -f $_.Name, $_.Count)
+    }
+
+    Write-Host "`n====================================" -ForegroundColor Cyan
+}
+
+# Disconnect
+Disconnect-MgGraph | Out-Null
+Write-Host "`nDisconnected from Microsoft Graph. Done." -ForegroundColor Green
