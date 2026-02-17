@@ -367,11 +367,9 @@ function Get-DriveItemsRecursive {
         [Parameter(Mandatory)]
         [string]$SiteUrl,
 
-        [Parameter(Mandatory)]
-        [string]$OwnerEmail,
+        [string]$OwnerEmail = "",
 
-        [Parameter(Mandatory)]
-        [string]$OwnerDisplayName,
+        [string]$OwnerDisplayName = "",
 
         [Parameter(Mandatory)]
         [string]$TenantDomain,
