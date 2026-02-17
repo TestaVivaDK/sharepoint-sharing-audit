@@ -506,3 +506,97 @@ if (-not $SkipOneDrive) {
     Write-Progress -Activity "Auditing OneDrive" -Completed -Id 1
     Write-Host "OneDrive audit complete.`n" -ForegroundColor Green
 }
+
+# ============================================================
+# SharePoint Audit
+# ============================================================
+
+if (-not $SkipSharePoint) {
+    Write-Host "=== Starting SharePoint Audit ===" -ForegroundColor Cyan
+
+    # Get all sites
+    $sites = Invoke-WithRetry -ScriptBlock {
+        Get-MgSite -Search "*" -All -Property "Id,DisplayName,WebUrl"
+    }
+
+    # Filter out personal OneDrive sites (already covered above) and system sites
+    $sites = $sites | Where-Object {
+        $_.WebUrl -and
+        $_.WebUrl -notmatch "-my\.sharepoint\.com" -and
+        $_.DisplayName -ne $null
+    }
+
+    $siteCount = ($sites | Measure-Object).Count
+    Write-Host "Found $siteCount SharePoint sites to audit." -ForegroundColor Green
+
+    $siteIndex = 0
+    foreach ($site in $sites) {
+        $siteIndex++
+        $siteName = $site.DisplayName ?? $site.WebUrl
+        $siteUrl = $site.WebUrl
+
+        Write-Progress -Activity "Auditing SharePoint" `
+            -Status "[$siteIndex/$siteCount] $siteName" `
+            -PercentComplete (($siteIndex / $siteCount) * 100) `
+            -Id 1
+
+        Write-Host "[$siteIndex/$siteCount] SharePoint: $siteName [$($script:totalSharedItems) shared items found]"
+
+        # Get all document libraries (drives) in the site
+        try {
+            $drives = Invoke-WithRetry -ScriptBlock {
+                Get-MgSiteDrive -SiteId $site.Id -All
+            }
+        }
+        catch {
+            Write-Warning "  Could not access drives for site '$siteName' ($siteUrl) — skipping."
+            continue
+        }
+
+        $driveIndex = 0
+        $driveCount = ($drives | Measure-Object).Count
+
+        foreach ($drive in $drives) {
+            $driveIndex++
+            $driveName = $drive.Name ?? "Unnamed Library"
+
+            Write-Progress -Activity "Scanning library" `
+                -Status "[$driveIndex/$driveCount] $driveName" `
+                -PercentComplete (($driveIndex / $driveCount) * 100) `
+                -ParentId 1 `
+                -Id 2
+
+            # Determine site owner (best effort)
+            $ownerEmail = ""
+            $ownerDisplayName = ""
+            if ($drive.Owner.User) {
+                $ownerEmail = $drive.Owner.User.Email ?? ""
+                $ownerDisplayName = $drive.Owner.User.DisplayName ?? ""
+            }
+            elseif ($drive.Owner.Group) {
+                $ownerDisplayName = $drive.Owner.Group.DisplayName ?? ""
+            }
+
+            Get-DriveItemsRecursive `
+                -DriveId $drive.Id `
+                -Source "SharePoint" `
+                -SiteName "$siteName / $driveName" `
+                -SiteUrl $siteUrl `
+                -OwnerEmail $ownerEmail `
+                -OwnerDisplayName $ownerDisplayName `
+                -TenantDomain $tenantDomain `
+                -DelayMs $DelayMs
+        }
+
+        Write-Progress -Activity "Scanning library" -Completed -Id 2
+
+        # Flush partial results periodically (every 10 sites)
+        if ($siteIndex % 10 -eq 0 -and $script:results.Count -gt 0) {
+            $script:results | Export-Csv -Path $tempPath -NoTypeInformation -Force
+            Write-Host "  (Partial results saved: $($script:results.Count) records)" -ForegroundColor DarkGray
+        }
+    }
+
+    Write-Progress -Activity "Auditing SharePoint" -Completed -Id 1
+    Write-Host "SharePoint audit complete.`n" -ForegroundColor Green
+}
