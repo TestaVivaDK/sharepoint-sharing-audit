@@ -51,11 +51,13 @@ if ($UsersToAudit -and $UsersToAudit.Count -eq 1 -and $UsersToAudit[0] -match ',
     $UsersToAudit = $UsersToAudit[0] -split ',' | ForEach-Object { $_.Trim() }
 }
 
-# --- Default output path ---
+# --- Default output directory and timestamp ---
+$script:timestamp = Get-Date -Format "yyyy-MM-dd_HHmmss"
 if (-not $OutputPath) {
-    $timestamp = Get-Date -Format "yyyy-MM-dd_HHmmss"
-    $OutputPath = Join-Path $PSScriptRoot "SharingAudit_$timestamp.csv"
+    $OutputPath = Join-Path $PSScriptRoot "SharingAudit_$($script:timestamp).csv"
 }
+$script:outputDir = Split-Path $OutputPath -Parent
+if (-not $script:outputDir) { $script:outputDir = $PSScriptRoot }
 
 # --- Temp file for partial results ---
 $tempPath = "$OutputPath.tmp"
@@ -101,6 +103,8 @@ Write-Host "Authenticated successfully." -ForegroundColor Green
 # --- Results collection ---
 $script:results = [System.Collections.Generic.List[PSCustomObject]]::new()
 $script:totalSharedItems = 0
+$script:perUserResults = @{}
+$script:perUserFiles = @()
 
 # ============================================================
 # Helper Functions
@@ -524,6 +528,8 @@ if (-not $SkipOneDrive) {
             continue
         }
 
+        $beforeCount = $script:results.Count
+
         Get-DriveItemsRecursive `
             -DriveId $driveId `
             -Source "OneDrive" `
@@ -533,6 +539,17 @@ if (-not $SkipOneDrive) {
             -OwnerDisplayName $displayName `
             -TenantDomain $tenantDomain `
             -DelayMs $DelayMs
+
+        # Export per-user CSV
+        $userItemCount = $script:results.Count - $beforeCount
+        if ($userItemCount -gt 0) {
+            $safeUpn = $upn -replace '[\\/:*?"<>|]', '_'
+            $userCsvPath = Join-Path $script:outputDir "SharingAudit_${safeUpn}_$($script:timestamp).csv"
+            $userItems = $script:results | Select-Object -Last $userItemCount
+            $userItems | Export-Csv -Path $userCsvPath -NoTypeInformation -Encoding UTF8
+            $script:perUserFiles += $userCsvPath
+            Write-Host "  -> $userItemCount items exported to: $userCsvPath" -ForegroundColor Green
+        }
 
         # Flush partial results periodically (every 25 users)
         if ($userIndex % 25 -eq 0 -and $script:results.Count -gt 0) {
@@ -699,9 +716,18 @@ if ($script:results.Count -eq 0) {
     Write-Host "No shared items found. No report generated." -ForegroundColor Yellow
 }
 else {
+    # Combined report
     $script:results | Export-Csv -Path $OutputPath -NoTypeInformation -Encoding UTF8
-    Write-Host "Report exported to: $OutputPath" -ForegroundColor Green
-    Write-Host "Total records: $($script:results.Count)" -ForegroundColor Green
+    Write-Host "`nCombined report: $OutputPath ($($script:results.Count) records)" -ForegroundColor Green
+
+    # List per-user reports
+    if ($script:perUserFiles.Count -gt 0) {
+        Write-Host "`nPer-user reports:" -ForegroundColor Green
+        foreach ($f in $script:perUserFiles) {
+            $count = (Import-Csv $f | Measure-Object).Count
+            Write-Host "  $f ($count records)" -ForegroundColor Green
+        }
+    }
 }
 
 # Clean up temp file
