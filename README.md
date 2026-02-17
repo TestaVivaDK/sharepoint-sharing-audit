@@ -162,5 +162,6 @@ The script requests these **delegated** (read-only) scopes during interactive si
 | `User.Read.All` | Enumerate all users in the tenant |
 | `Sites.Read.All` | Read all SharePoint sites and content |
 | `Files.Read.All` | Read all OneDrive files and sharing permissions |
+| `Organization.Read.All` | Detect tenant domain for internal/external classification |
 
 The script never modifies or revokes any permissions. It is read-only.

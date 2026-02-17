@@ -86,7 +86,8 @@ Write-Host "All required modules loaded." -ForegroundColor Green
 $scopes = @(
     "User.Read.All",
     "Sites.Read.All",
-    "Files.Read.All"
+    "Files.Read.All",
+    "Organization.Read.All"
 )
 
 Write-Host "Connecting to Microsoft Graph (interactive sign-in)..." -ForegroundColor Cyan
@@ -676,6 +677,6 @@ if ($script:results.Count -gt 0) {
 }
 finally {
     # Disconnect — runs even if an error occurs mid-script
-    Disconnect-MgGraph | Out-Null
+    try { Disconnect-MgGraph | Out-Null } catch {}
     Write-Host "`nDisconnected from Microsoft Graph. Done." -ForegroundColor Green
 }
