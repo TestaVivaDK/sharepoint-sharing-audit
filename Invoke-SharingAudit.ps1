@@ -303,3 +303,123 @@ function Add-PermissionRecord {
     $script:results.Add($record)
     $script:totalSharedItems++
 }
+
+# ============================================================
+# Drive Item Walker
+# ============================================================
+
+function Get-DriveItemPermissions {
+    <#
+    .SYNOPSIS
+        Gets non-inherited sharing permissions for a drive item.
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [string]$DriveId,
+
+        [Parameter(Mandatory)]
+        [string]$ItemId
+    )
+
+    try {
+        $permissions = Invoke-WithRetry -ScriptBlock {
+            Get-MgDriveItemPermission -DriveId $DriveId -DriveItemId $ItemId -All
+        }
+
+        # Filter out inherited permissions — we only want explicit shares
+        $explicit = $permissions | Where-Object {
+            $_.InheritedFrom -eq $null
+        }
+
+        return $explicit
+    }
+    catch {
+        Write-Warning "  Could not get permissions for item $ItemId in drive $DriveId : $($_.Exception.Message)"
+        return @()
+    }
+}
+
+function Get-DriveItemsRecursive {
+    <#
+    .SYNOPSIS
+        Recursively walks a drive and processes sharing permissions for each item.
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [string]$DriveId,
+
+        [string]$ParentItemId = "root",
+
+        [string]$ParentPath = "",
+
+        [Parameter(Mandatory)]
+        [string]$Source,
+
+        [Parameter(Mandatory)]
+        [string]$SiteName,
+
+        [Parameter(Mandatory)]
+        [string]$SiteUrl,
+
+        [Parameter(Mandatory)]
+        [string]$OwnerEmail,
+
+        [Parameter(Mandatory)]
+        [string]$OwnerDisplayName,
+
+        [Parameter(Mandatory)]
+        [string]$TenantDomain,
+
+        [int]$DelayMs = 100
+    )
+
+    try {
+        $children = Invoke-WithRetry -ScriptBlock {
+            Get-MgDriveItemChild -DriveId $DriveId -DriveItemId $ParentItemId -All
+        }
+    }
+    catch {
+        Write-Warning "  Could not list children of $ParentPath in drive $DriveId : $($_.Exception.Message)"
+        return
+    }
+
+    foreach ($item in $children) {
+        $itemPath = if ($ParentPath) { "$ParentPath/$($item.Name)" } else { "/$($item.Name)" }
+        $itemType = if ($item.Folder) { "Folder" } else { "File" }
+
+        # Get permissions for this item
+        $permissions = Get-DriveItemPermissions -DriveId $DriveId -ItemId $item.Id
+
+        foreach ($perm in $permissions) {
+            Add-PermissionRecord `
+                -Source $Source `
+                -SiteName $SiteName `
+                -SiteUrl $SiteUrl `
+                -ItemPath $itemPath `
+                -ItemType $itemType `
+                -Permission $perm `
+                -OwnerEmail $OwnerEmail `
+                -OwnerDisplayName $OwnerDisplayName `
+                -TenantDomain $TenantDomain
+        }
+
+        # Recurse into folders
+        if ($item.Folder -and $item.Folder.ChildCount -gt 0) {
+            Get-DriveItemsRecursive `
+                -DriveId $DriveId `
+                -ParentItemId $item.Id `
+                -ParentPath $itemPath `
+                -Source $Source `
+                -SiteName $SiteName `
+                -SiteUrl $SiteUrl `
+                -OwnerEmail $OwnerEmail `
+                -OwnerDisplayName $OwnerDisplayName `
+                -TenantDomain $TenantDomain `
+                -DelayMs $DelayMs
+        }
+
+        if ($DelayMs -gt 0) {
+            Start-Sleep -Milliseconds $DelayMs
+        }
+    }
+}
