@@ -333,8 +333,9 @@ function Get-DriveItemPermissions {
         }
 
         # Filter out inherited permissions — we only want explicit shares
+        # InheritedFrom is an empty object {} for non-inherited, populated for inherited
         $explicit = $permissions | Where-Object {
-            $null -eq $_.InheritedFrom
+            -not $_.InheritedFrom.DriveId -and -not $_.InheritedFrom.Path
         }
 
         return $explicit
@@ -485,13 +486,14 @@ if (-not $SkipOneDrive) {
 
         Write-Host "[$userIndex/$userCount] OneDrive: $displayName ($upn) [$($script:totalSharedItems) shared items found]"
 
-        # Get user's default OneDrive
+        # Get user's default OneDrive (singular /drive endpoint, not /drives)
         try {
-            $drives = Invoke-WithRetry -ScriptBlock {
-                Get-MgUserDrive -UserId $user.Id
+            $driveResponse = Invoke-WithRetry -ScriptBlock {
+                Invoke-MgGraphRequest -Method GET -Uri "https://graph.microsoft.com/v1.0/users/$($user.Id)/drive"
             }
-            $drive = $drives | Select-Object -First 1
-            if (-not $drive) {
+            $driveId = $driveResponse.id
+            $driveUrl = $driveResponse.webUrl ?? "N/A"
+            if (-not $driveId) {
                 Write-Warning "  No OneDrive for $upn — skipping."
                 continue
             }
@@ -501,10 +503,8 @@ if (-not $SkipOneDrive) {
             continue
         }
 
-        $driveUrl = $drive.WebUrl ?? "N/A"
-
         Get-DriveItemsRecursive `
-            -DriveId $drive.Id `
+            -DriveId $driveId `
             -Source "OneDrive" `
             -SiteName $displayName `
             -SiteUrl $driveUrl `
@@ -531,9 +531,61 @@ if (-not $SkipOneDrive) {
 if (-not $SkipSharePoint) {
     Write-Host "=== Starting SharePoint Audit ===" -ForegroundColor Cyan
 
-    # Get all sites
-    $sites = Invoke-WithRetry -ScriptBlock {
-        Get-MgSite -Search "*" -All -Property "Id,DisplayName,WebUrl"
+    # Get all sites — try multiple approaches since Search may require admin consent
+    $sites = @()
+
+    # Approach 1: Search API
+    try {
+        $searchResults = Invoke-WithRetry -ScriptBlock {
+            Get-MgSite -Search "*" -All -Property "Id,DisplayName,WebUrl"
+        }
+        if ($searchResults) { $sites = @($searchResults) }
+    }
+    catch {
+        Write-Warning "  Site search failed: $($_.Exception.Message)"
+    }
+
+    # Approach 2: If search returned nothing, enumerate from root site
+    if ($sites.Count -eq 0) {
+        Write-Host "  Search returned 0 sites. Trying root site enumeration..." -ForegroundColor Yellow
+        try {
+            $rootSiteResponse = Invoke-MgGraphRequest -Method GET -Uri "https://graph.microsoft.com/v1.0/sites/root"
+            $rootSiteId = $rootSiteResponse.id
+
+            # Get subsites of root
+            $subsitesResponse = Invoke-MgGraphRequest -Method GET -Uri "https://graph.microsoft.com/v1.0/sites/$rootSiteId/sites"
+            $sites = @($subsitesResponse.value | ForEach-Object {
+                [PSCustomObject]@{
+                    Id          = $_.id
+                    DisplayName = $_.displayName
+                    WebUrl      = $_.webUrl
+                }
+            })
+
+            # Also include the root site itself
+            $sites += [PSCustomObject]@{
+                Id          = $rootSiteResponse.id
+                DisplayName = $rootSiteResponse.displayName
+                WebUrl      = $rootSiteResponse.webUrl
+            }
+
+            # Handle pagination
+            $nextLink = $subsitesResponse.'@odata.nextLink'
+            while ($nextLink) {
+                $page = Invoke-MgGraphRequest -Method GET -Uri $nextLink
+                $sites += @($page.value | ForEach-Object {
+                    [PSCustomObject]@{
+                        Id          = $_.id
+                        DisplayName = $_.displayName
+                        WebUrl      = $_.webUrl
+                    }
+                })
+                $nextLink = $page.'@odata.nextLink'
+            }
+        }
+        catch {
+            Write-Warning "  Root site enumeration failed: $($_.Exception.Message)"
+        }
     }
 
     # Filter out personal OneDrive sites (already covered above) and system sites
