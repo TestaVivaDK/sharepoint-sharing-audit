@@ -24,9 +24,24 @@
 .PARAMETER UsersToAudit
     Array of UPNs to audit. If omitted, audits all licensed enabled users.
 
+.PARAMETER TenantId
+    Azure AD tenant ID for app-only authentication. Required with -ClientId.
+
+.PARAMETER ClientId
+    App registration client ID for app-only authentication. Required with -TenantId.
+
+.PARAMETER ClientSecret
+    Client secret for app-only auth. Use this OR -CertificateThumbprint.
+
+.PARAMETER CertificateThumbprint
+    Certificate thumbprint for app-only auth. Use this OR -ClientSecret.
+
 .EXAMPLE
     ./Invoke-SharingAudit.ps1
     ./Invoke-SharingAudit.ps1 -SkipSharePoint -UsersToAudit "jdoe@contoso.com","asmith@contoso.com"
+
+.EXAMPLE
+    ./Invoke-SharingAudit.ps1 -TenantId "your-tenant-id" -ClientId "your-app-id" -ClientSecret "your-secret"
 #>
 
 [CmdletBinding()]
@@ -40,7 +55,13 @@ param(
 
     [switch]$SkipSharePoint,
 
-    [string[]]$UsersToAudit
+    [string[]]$UsersToAudit,
+
+    # App-only authentication (recommended for full tenant audit)
+    [string]$TenantId,
+    [string]$ClientId,
+    [string]$ClientSecret,
+    [string]$CertificateThumbprint
 )
 
 Set-StrictMode -Version 1
@@ -90,15 +111,36 @@ foreach ($mod in $requiredModules) {
 Write-Host "All required modules loaded." -ForegroundColor Green
 
 # --- Authenticate ---
-$scopes = @(
-    "User.Read.All",
-    "Sites.Read.All",
-    "Files.Read.All"
-)
-
-Write-Host "Connecting to Microsoft Graph (interactive sign-in)..." -ForegroundColor Cyan
-Connect-MgGraph -Scopes $scopes -ErrorAction Stop
-Write-Host "Authenticated successfully." -ForegroundColor Green
+if ($TenantId -and $ClientId) {
+    # App-only authentication (application permissions — can read ALL users' files)
+    if ($CertificateThumbprint) {
+        Write-Host "Connecting to Microsoft Graph (app-only, certificate)..." -ForegroundColor Cyan
+        Connect-MgGraph -TenantId $TenantId -ClientId $ClientId -CertificateThumbprint $CertificateThumbprint -NoWelcome -ErrorAction Stop
+    }
+    elseif ($ClientSecret) {
+        Write-Host "Connecting to Microsoft Graph (app-only, client secret)..." -ForegroundColor Cyan
+        $secureSecret = ConvertTo-SecureString $ClientSecret -AsPlainText -Force
+        $credential = New-Object System.Management.Automation.PSCredential($ClientId, $secureSecret)
+        Connect-MgGraph -TenantId $TenantId -ClientSecretCredential $credential -NoWelcome -ErrorAction Stop
+    }
+    else {
+        Write-Error "App-only auth requires either -ClientSecret or -CertificateThumbprint."
+        return
+    }
+    Write-Host "Authenticated (app-only). Full tenant access enabled." -ForegroundColor Green
+}
+else {
+    # Interactive delegated authentication (can only read files the signed-in user has access to)
+    $scopes = @(
+        "User.Read.All",
+        "Sites.Read.All",
+        "Files.Read.All"
+    )
+    Write-Host "Connecting to Microsoft Graph (interactive sign-in)..." -ForegroundColor Cyan
+    Write-Host "NOTE: Delegated auth can only see files you have access to. For full tenant audit, use app-only auth." -ForegroundColor Yellow
+    Connect-MgGraph -Scopes $scopes -ErrorAction Stop
+    Write-Host "Authenticated successfully." -ForegroundColor Green
+}
 
 # --- Results collection ---
 $script:results = [System.Collections.Generic.List[PSCustomObject]]::new()

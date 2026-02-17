@@ -1,4 +1,4 @@
-# SharePoint & OneDrive Sharing Audit
+56tfgvikoluj, l.mim. # SharePoint & OneDrive Sharing Audit
 
 A PowerShell script that audits all sharing permissions across your Microsoft 365 tenant's SharePoint sites and OneDrive accounts, producing a CSV report for access cleanup.
 
@@ -22,22 +22,47 @@ This installs all submodules. The script uses:
 
 ## Usage
 
-### Basic: Full audit of all users and sites
+### App-only authentication (recommended for full tenant audit)
+
+Interactive sign-in can only see files the signed-in user has access to. For a **full tenant audit** that sees all users' files, use app-only authentication:
+
+```powershell
+./Invoke-SharingAudit.ps1 -TenantId "your-tenant-id" -ClientId "your-app-id" -ClientSecret "your-secret"
+```
+
+Or with a certificate:
+
+```powershell
+./Invoke-SharingAudit.ps1 -TenantId "your-tenant-id" -ClientId "your-app-id" -CertificateThumbprint "your-thumbprint"
+```
+
+#### Setting up the Azure AD app registration
+
+1. Go to [Azure Portal](https://portal.azure.com) > **Azure Active Directory** > **App registrations** > **New registration**
+2. Name it something like `SharePoint Sharing Audit`
+3. Set **Supported account types** to "Accounts in this organizational directory only"
+4. Click **Register**
+5. Note the **Application (client) ID** and **Directory (tenant) ID**
+6. Go to **Certificates & secrets** > **New client secret** > copy the secret value
+7. Go to **API permissions** > **Add a permission** > **Microsoft Graph** > **Application permissions**
+8. Add these permissions:
+   - `User.Read.All`
+   - `Sites.Read.All`
+   - `Files.Read.All`
+9. Click **Grant admin consent** for your organization
+
+### Interactive sign-in (limited)
 
 ```powershell
 ./Invoke-SharingAudit.ps1
 ```
 
-A browser window will open for interactive sign-in. Sign in with your admin account. The script will:
-
-1. Enumerate all licensed, enabled users and walk their OneDrive files
-2. Enumerate all SharePoint sites and walk their document libraries
-3. Export results to `SharingAudit_YYYY-MM-DD_HHmmss.csv` in the script directory
+A browser window will open for interactive sign-in. **Note:** This can only see files the signed-in user has access to. Other users' unshared files will not appear.
 
 ### Audit specific users only
 
 ```powershell
-./Invoke-SharingAudit.ps1 -UsersToAudit "jdoe@contoso.com","asmith@contoso.com"
+./Invoke-SharingAudit.ps1 -TenantId "..." -ClientId "..." -ClientSecret "..." -UsersToAudit "jdoe@contoso.com","asmith@contoso.com"
 ```
 
 ### Skip OneDrive or SharePoint
