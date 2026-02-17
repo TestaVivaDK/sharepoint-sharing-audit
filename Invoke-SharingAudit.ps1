@@ -91,8 +91,7 @@ Write-Host "All required modules loaded." -ForegroundColor Green
 $scopes = @(
     "User.Read.All",
     "Sites.Read.All",
-    "Files.Read.All",
-    "Organization.Read.All"
+    "Files.Read.All"
 )
 
 Write-Host "Connecting to Microsoft Graph (interactive sign-in)..." -ForegroundColor Cyan
@@ -437,11 +436,35 @@ try {
 # Tenant Domain Detection
 # ============================================================
 
-$orgInfo = Invoke-WithRetry -ScriptBlock {
-    Get-MgOrganization
+$tenantDomain = $null
+
+# Try Get-MgOrganization first
+try {
+    $orgInfo = Get-MgOrganization -ErrorAction Stop
+    $tenantDomain = ($orgInfo.VerifiedDomains | Where-Object { $_.IsDefault }).Name
 }
-$tenantDomain = ($orgInfo.VerifiedDomains | Where-Object { $_.IsDefault }).Name
-Write-Host "Tenant domain: $tenantDomain" -ForegroundColor Cyan
+catch {
+    Write-Warning "Could not query organization info: $($_.Exception.Message)"
+}
+
+# Fallback: derive from the signed-in context or user UPNs
+if (-not $tenantDomain) {
+    $context = Get-MgContext
+    if ($context.Account -match '@(.+)$') {
+        $tenantDomain = $Matches[1]
+    }
+    elseif ($UsersToAudit -and $UsersToAudit[0] -match '@(.+)$') {
+        $tenantDomain = $Matches[1]
+    }
+}
+
+if ($tenantDomain) {
+    Write-Host "Tenant domain: $tenantDomain" -ForegroundColor Cyan
+}
+else {
+    Write-Warning "Could not detect tenant domain. External/internal classification may be inaccurate."
+    $tenantDomain = ""
+}
 
 # ============================================================
 # OneDrive Audit
