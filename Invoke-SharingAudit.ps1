@@ -446,9 +446,13 @@ if (-not $SkipOneDrive) {
 
     # Get users
     if ($UsersToAudit) {
-        $users = foreach ($upn in $UsersToAudit) {
-            Invoke-WithRetry -ScriptBlock {
-                Get-MgUser -UserId $upn -Property "Id,DisplayName,UserPrincipalName,AccountEnabled,AssignedLicenses"
+        $users = @()
+        foreach ($upn in $UsersToAudit) {
+            try {
+                $users += Get-MgUser -UserId $upn -Property "Id,DisplayName,UserPrincipalName,AccountEnabled,AssignedLicenses"
+            }
+            catch {
+                Write-Warning "Could not find user $upn — skipping. Error: $($_.Exception.Message)"
             }
         }
     }
