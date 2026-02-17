@@ -96,3 +96,210 @@ Write-Host "Authenticated successfully." -ForegroundColor Green
 # --- Results collection ---
 $script:results = [System.Collections.Generic.List[PSCustomObject]]::new()
 $script:totalSharedItems = 0
+
+# ============================================================
+# Helper Functions
+# ============================================================
+
+function Invoke-WithRetry {
+    <#
+    .SYNOPSIS
+        Executes a script block with retry on transient failures.
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [scriptblock]$ScriptBlock,
+
+        [int]$MaxRetries = 3,
+
+        [int]$BaseDelayMs = 1000
+    )
+
+    for ($attempt = 1; $attempt -le ($MaxRetries + 1); $attempt++) {
+        try {
+            return & $ScriptBlock
+        }
+        catch {
+            if ($attempt -gt $MaxRetries) {
+                throw
+            }
+            $delay = $BaseDelayMs * [math]::Pow(2, $attempt - 1)
+            Write-Warning "Attempt $attempt failed: $($_.Exception.Message). Retrying in ${delay}ms..."
+            Start-Sleep -Milliseconds $delay
+        }
+    }
+}
+
+function Get-SharingType {
+    <#
+    .SYNOPSIS
+        Classifies a Graph permission object into a human-readable sharing type.
+    #>
+    param(
+        [Parameter(Mandatory)]
+        $Permission
+    )
+
+    if ($Permission.Link) {
+        switch ($Permission.Link.Scope) {
+            "anonymous"     { return "Link-Anyone" }
+            "organization"  { return "Link-Organization" }
+            "users"         { return "Link-SpecificPeople" }
+            default         { return "Link-$($Permission.Link.Scope)" }
+        }
+    }
+    elseif ($Permission.GrantedToV2.Group) {
+        return "Group"
+    }
+    elseif ($Permission.GrantedToV2.User -or $Permission.GrantedTo.User) {
+        return "User"
+    }
+    else {
+        return "Unknown"
+    }
+}
+
+function Get-SharedWithInfo {
+    <#
+    .SYNOPSIS
+        Extracts who the item is shared with and classifies as Internal/External/Guest/Anonymous.
+    #>
+    param(
+        [Parameter(Mandatory)]
+        $Permission,
+
+        [string]$TenantDomain
+    )
+
+    $sharedWith = ""
+    $sharedWithType = "Unknown"
+
+    if ($Permission.Link) {
+        if ($Permission.Link.Scope -eq "anonymous") {
+            $sharedWith = "Anyone with the link"
+            $sharedWithType = "Anonymous"
+        }
+        elseif ($Permission.Link.Scope -eq "organization") {
+            $sharedWith = "All organization members"
+            $sharedWithType = "Internal"
+        }
+        elseif ($Permission.GrantedToIdentitiesV2) {
+            $identities = @()
+            foreach ($identity in $Permission.GrantedToIdentitiesV2) {
+                if ($identity.User.Email) {
+                    $identities += $identity.User.Email
+                }
+                elseif ($identity.User.DisplayName) {
+                    $identities += $identity.User.DisplayName
+                }
+            }
+            $sharedWith = $identities -join "; "
+            # Check if any are external
+            $hasExternal = $identities | Where-Object {
+                $_ -and $TenantDomain -and ($_ -notlike "*@$TenantDomain")
+            }
+            $sharedWithType = if ($hasExternal) { "External" } else { "Internal" }
+        }
+        else {
+            $sharedWith = "Specific people (details unavailable)"
+            $sharedWithType = "Internal"
+        }
+    }
+    elseif ($Permission.GrantedToV2.Group) {
+        $sharedWith = $Permission.GrantedToV2.Group.DisplayName ?? "Unknown Group"
+        $sharedWithType = "Internal"
+    }
+    elseif ($Permission.GrantedToV2.User) {
+        $email = $Permission.GrantedToV2.User.Email
+        $sharedWith = $email ?? ($Permission.GrantedToV2.User.DisplayName ?? "Unknown User")
+        if ($email -and $TenantDomain -and ($email -notlike "*@$TenantDomain")) {
+            $sharedWithType = "External"
+        }
+        else {
+            $sharedWithType = "Internal"
+        }
+    }
+    elseif ($Permission.GrantedTo.User) {
+        $email = $Permission.GrantedTo.User.Email
+        $sharedWith = $email ?? ($Permission.GrantedTo.User.DisplayName ?? "Unknown User")
+        if ($email -and $TenantDomain -and ($email -notlike "*@$TenantDomain")) {
+            $sharedWithType = "External"
+        }
+        else {
+            $sharedWithType = "Internal"
+        }
+    }
+
+    # Guest user detection
+    if ($sharedWith -match "#EXT#") {
+        $sharedWithType = "Guest"
+    }
+
+    return @{
+        SharedWith     = $sharedWith
+        SharedWithType = $sharedWithType
+    }
+}
+
+function Get-PermissionRole {
+    <#
+    .SYNOPSIS
+        Extracts the role (Read, Write, Owner) from a permission object.
+    #>
+    param(
+        [Parameter(Mandatory)]
+        $Permission
+    )
+
+    if ($Permission.Roles -contains "owner") { return "Owner" }
+    if ($Permission.Roles -contains "write") { return "Write" }
+    if ($Permission.Roles -contains "read")  { return "Read" }
+    if ($Permission.Link.Type -eq "edit")    { return "Write" }
+    if ($Permission.Link.Type -eq "view")    { return "Read" }
+    return ($Permission.Roles -join ", ")
+}
+
+function Add-PermissionRecord {
+    <#
+    .SYNOPSIS
+        Creates a result record and adds it to the results collection.
+    #>
+    param(
+        [string]$Source,
+        [string]$SiteName,
+        [string]$SiteUrl,
+        [string]$ItemPath,
+        [string]$ItemType,
+        $Permission,
+        [string]$OwnerEmail,
+        [string]$OwnerDisplayName,
+        [string]$TenantDomain
+    )
+
+    $sharingType = Get-SharingType -Permission $Permission
+    $sharedWithInfo = Get-SharedWithInfo -Permission $Permission -TenantDomain $TenantDomain
+    $role = Get-PermissionRole -Permission $Permission
+
+    # Skip "owner" permissions that are just the item owner themselves
+    if ($role -eq "Owner" -and $sharedWithInfo.SharedWith -eq $OwnerEmail) {
+        return
+    }
+
+    $record = [PSCustomObject]@{
+        Source           = $Source
+        SiteName         = $SiteName
+        SiteUrl          = $SiteUrl
+        ItemPath         = $ItemPath
+        ItemType         = $ItemType
+        SharingType      = $sharingType
+        SharedWith       = $sharedWithInfo.SharedWith
+        SharedWithType   = $sharedWithInfo.SharedWithType
+        Role             = $role
+        CreatedDateTime  = $Permission.CreatedDateTime
+        OwnerEmail       = $OwnerEmail
+        OwnerDisplayName = $OwnerDisplayName
+    }
+
+    $script:results.Add($record)
+    $script:totalSharedItems++
+}
