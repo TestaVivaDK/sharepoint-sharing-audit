@@ -46,6 +46,11 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+# --- Normalize UsersToAudit (handles comma-separated string from pwsh -File) ---
+if ($UsersToAudit -and $UsersToAudit.Count -eq 1 -and $UsersToAudit[0] -match ',') {
+    $UsersToAudit = $UsersToAudit[0] -split ',' | ForEach-Object { $_.Trim() }
+}
+
 # --- Default output path ---
 if (-not $OutputPath) {
     $timestamp = Get-Date -Format "yyyy-MM-dd_HHmmss"
