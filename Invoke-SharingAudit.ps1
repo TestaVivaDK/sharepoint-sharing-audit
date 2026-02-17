@@ -328,7 +328,7 @@ function Get-DriveItemPermissions {
 
         # Filter out inherited permissions — we only want explicit shares
         $explicit = $permissions | Where-Object {
-            $_.InheritedFrom -eq $null
+            $null -eq $_.InheritedFrom
         }
 
         return $explicit
@@ -423,6 +423,8 @@ function Get-DriveItemsRecursive {
         }
     }
 }
+
+try {
 
 # ============================================================
 # Tenant Domain Detection
@@ -671,6 +673,9 @@ if ($script:results.Count -gt 0) {
     Write-Host "`n====================================" -ForegroundColor Cyan
 }
 
-# Disconnect
-Disconnect-MgGraph | Out-Null
-Write-Host "`nDisconnected from Microsoft Graph. Done." -ForegroundColor Green
+}
+finally {
+    # Disconnect — runs even if an error occurs mid-script
+    Disconnect-MgGraph | Out-Null
+    Write-Host "`nDisconnected from Microsoft Graph. Done." -ForegroundColor Green
+}
