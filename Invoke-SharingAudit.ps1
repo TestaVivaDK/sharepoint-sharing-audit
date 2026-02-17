@@ -423,3 +423,86 @@ function Get-DriveItemsRecursive {
         }
     }
 }
+
+# ============================================================
+# Tenant Domain Detection
+# ============================================================
+
+$orgInfo = Invoke-WithRetry -ScriptBlock {
+    Get-MgOrganization
+}
+$tenantDomain = ($orgInfo.VerifiedDomains | Where-Object { $_.IsDefault }).Name
+Write-Host "Tenant domain: $tenantDomain" -ForegroundColor Cyan
+
+# ============================================================
+# OneDrive Audit
+# ============================================================
+
+if (-not $SkipOneDrive) {
+    Write-Host "`n=== Starting OneDrive Audit ===" -ForegroundColor Cyan
+
+    # Get users
+    if ($UsersToAudit) {
+        $users = foreach ($upn in $UsersToAudit) {
+            Invoke-WithRetry -ScriptBlock {
+                Get-MgUser -UserId $upn -Property "Id,DisplayName,UserPrincipalName,AccountEnabled,AssignedLicenses"
+            }
+        }
+    }
+    else {
+        $users = Invoke-WithRetry -ScriptBlock {
+            Get-MgUser -All -Property "Id,DisplayName,UserPrincipalName,AccountEnabled,AssignedLicenses" -Filter "accountEnabled eq true"
+        }
+        # Filter to only licensed users
+        $users = $users | Where-Object { $_.AssignedLicenses.Count -gt 0 }
+    }
+
+    $userCount = ($users | Measure-Object).Count
+    Write-Host "Found $userCount users to audit." -ForegroundColor Green
+
+    $userIndex = 0
+    foreach ($user in $users) {
+        $userIndex++
+        $upn = $user.UserPrincipalName
+        $displayName = $user.DisplayName
+
+        Write-Progress -Activity "Auditing OneDrive" `
+            -Status "[$userIndex/$userCount] $displayName ($upn)" `
+            -PercentComplete (($userIndex / $userCount) * 100) `
+            -Id 1
+
+        Write-Host "[$userIndex/$userCount] OneDrive: $displayName ($upn) [$($script:totalSharedItems) shared items found]"
+
+        # Get user's OneDrive
+        try {
+            $drive = Invoke-WithRetry -ScriptBlock {
+                Get-MgUserDrive -UserId $user.Id
+            }
+        }
+        catch {
+            Write-Warning "  No OneDrive for $upn — skipping."
+            continue
+        }
+
+        $driveUrl = $drive.WebUrl ?? "N/A"
+
+        Get-DriveItemsRecursive `
+            -DriveId $drive.Id `
+            -Source "OneDrive" `
+            -SiteName $displayName `
+            -SiteUrl $driveUrl `
+            -OwnerEmail $upn `
+            -OwnerDisplayName $displayName `
+            -TenantDomain $tenantDomain `
+            -DelayMs $DelayMs
+
+        # Flush partial results periodically (every 25 users)
+        if ($userIndex % 25 -eq 0 -and $script:results.Count -gt 0) {
+            $script:results | Export-Csv -Path $tempPath -NoTypeInformation -Force
+            Write-Host "  (Partial results saved: $($script:results.Count) records)" -ForegroundColor DarkGray
+        }
+    }
+
+    Write-Progress -Activity "Auditing OneDrive" -Completed -Id 1
+    Write-Host "OneDrive audit complete.`n" -ForegroundColor Green
+}
