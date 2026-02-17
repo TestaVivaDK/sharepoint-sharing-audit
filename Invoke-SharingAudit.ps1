@@ -43,7 +43,7 @@ param(
     [string[]]$UsersToAudit
 )
 
-Set-StrictMode -Version Latest
+Set-StrictMode -Version 1
 $ErrorActionPreference = "Stop"
 
 # --- Normalize UsersToAudit (handles comma-separated string from pwsh -File) ---
