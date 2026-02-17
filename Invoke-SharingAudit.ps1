@@ -301,7 +301,7 @@ function Add-PermissionRecord {
         SharedWith       = $sharedWithInfo.SharedWith
         SharedWithType   = $sharedWithInfo.SharedWithType
         Role             = $role
-        CreatedDateTime  = $Permission.CreatedDateTime
+        CreatedDateTime  = if ($Permission.PSObject.Properties['CreatedDateTime']) { $Permission.CreatedDateTime } else { "" }
         OwnerEmail       = $OwnerEmail
         OwnerDisplayName = $OwnerDisplayName
     }
