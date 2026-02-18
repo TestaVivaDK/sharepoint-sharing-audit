@@ -31,8 +31,13 @@ class CollectorConfig:
 @dataclass(frozen=True)
 class ReporterConfig:
     neo4j: Neo4jConfig = field(default_factory=Neo4jConfig)
-    sensitive_folders: list[str] = field(
-        default_factory=lambda: os.environ.get("SENSITIVE_FOLDERS", "ledelse,ledelsen,datarum,løn").split(",")
-    )
     tenant_domain: str = field(default_factory=lambda: os.environ.get("TENANT_DOMAIN", ""))
     output_dir: str = field(default_factory=lambda: os.environ.get("REPORT_OUTPUT_DIR", "./reports"))
+
+
+@dataclass(frozen=True)
+class WebappConfig:
+    graph_api: GraphApiConfig = field(default_factory=GraphApiConfig)
+    neo4j: Neo4jConfig = field(default_factory=Neo4jConfig)
+    tenant_domain: str = field(default_factory=lambda: os.environ.get("TENANT_DOMAIN", ""))
+    session_secret: str = field(default_factory=lambda: os.environ.get("SESSION_SECRET", "dev-secret-change-me"))
