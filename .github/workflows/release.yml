@@ -1,0 +1,110 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/sharing-audit
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run tests
+        run: pytest --tb=short -q
+
+  build-images:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - image: collector
+            dockerfile: docker/Dockerfile.collector
+          - image: reporter
+            dockerfile: docker/Dockerfile.reporter
+          - image: webapp
+            dockerfile: docker/Dockerfile.webapp
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-${{ matrix.image }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  helm-chart:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+
+      - name: Set chart version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i "s/^version:.*/version: ${VERSION}/" helm/sharing-audit/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${VERSION}\"/" helm/sharing-audit/Chart.yaml
+
+      - name: Update default image tags
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          OWNER="${{ github.repository_owner }}"
+          sed -i "s|image: sharing-audit-collector:latest|image: ghcr.io/${OWNER}/sharing-audit-collector:${VERSION}|" helm/sharing-audit/values.yaml
+          sed -i "s|image: sharing-audit-reporter:latest|image: ghcr.io/${OWNER}/sharing-audit-reporter:${VERSION}|" helm/sharing-audit/values.yaml
+          sed -i "s|image: sharing-audit-webapp:latest|image: ghcr.io/${OWNER}/sharing-audit-webapp:${VERSION}|" helm/sharing-audit/values.yaml
+
+      - name: Package Helm chart
+        run: helm package helm/sharing-audit
+
+      - name: Push Helm chart to GHCR
+        run: helm push sharing-audit-*.tgz oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts
+
+  github-release:
+    needs: [build-images, helm-chart]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
