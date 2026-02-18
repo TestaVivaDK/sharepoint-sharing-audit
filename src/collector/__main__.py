@@ -1,6 +1,7 @@
 """Collector entry point: python -m collector"""
 
 import logging
+import os
 import sys
 
 from shared.config import CollectorConfig
@@ -41,6 +42,12 @@ def main():
     users = graph.get_users()
     logger.info(f"Found {len(users)} users.")
 
+    users_filter = os.environ.get("USERS_TO_AUDIT", "")
+    if users_filter:
+        filter_upns = [u.strip() for u in users_filter.split(",")]
+        users = [u for u in users if u.get("userPrincipalName") in filter_upns]
+        logger.info(f"Filtered to {len(users)} users: {filter_upns}")
+
     for i, user in enumerate(users, 1):
         upn = user.get("userPrincipalName", "?")
         logger.info(f"[{i}/{len(users)}] OneDrive: {user.get('displayName', '?')} ({upn})")
@@ -48,9 +55,12 @@ def main():
         total += count
 
     # SharePoint audit
-    logger.info("=== Starting SharePoint Audit ===")
-    sp_count = collect_sharepoint_sites(graph, neo4j, run_id, tenant_domain)
-    total += sp_count
+    if os.environ.get("SKIP_SHAREPOINT", "").lower() not in ("1", "true", "yes"):
+        logger.info("=== Starting SharePoint Audit ===")
+        sp_count = collect_sharepoint_sites(graph, neo4j, run_id, tenant_domain)
+        total += sp_count
+    else:
+        logger.info("Skipping SharePoint audit (SKIP_SHAREPOINT is set)")
 
     neo4j.complete_scan_run(run_id)
     logger.info(f"Collection complete. Total shared items: {total}")
