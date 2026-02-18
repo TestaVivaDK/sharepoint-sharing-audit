@@ -1,7 +1,9 @@
 import { useIsAuthenticated, useMsal } from '@azure/msal-react'
 import { useEffect, useState } from 'react'
 import { LoginPage } from './auth/LoginPage'
+import { Dashboard } from './components/Dashboard'
 import { loginScopes } from './auth/msalConfig'
+import { Box, CircularProgress, Typography } from '@mui/material'
 
 function App() {
   const isAuthenticated = useIsAuthenticated()
@@ -11,7 +13,6 @@ function App() {
   useEffect(() => {
     if (!isAuthenticated || accounts.length === 0) return
 
-    // Get ID token and send to backend to create session
     instance.acquireTokenSilent({
       scopes: loginScopes,
       account: accounts[0],
@@ -26,9 +27,17 @@ function App() {
   }, [isAuthenticated, accounts, instance])
 
   if (!isAuthenticated) return <LoginPage />
-  if (!sessionReady) return <div>Establishing session...</div>
 
-  return <div>Dashboard placeholder — Task 11 will build this</div>
+  if (!sessionReady) {
+    return (
+      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mt: 10, gap: 2 }}>
+        <CircularProgress />
+        <Typography>Establishing session...</Typography>
+      </Box>
+    )
+  }
+
+  return <Dashboard />
 }
 
 export default App
