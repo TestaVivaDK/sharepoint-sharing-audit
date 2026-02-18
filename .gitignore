@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Environment
+.env
+.venv/
+venv/
+env/
+
+# Reports (generated output)
+reports/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Neo4j local data
+neo4j-data/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Misc
+.grepai/
+*.tmp
+*.log
+Invoke-SharingAudit.ps1
