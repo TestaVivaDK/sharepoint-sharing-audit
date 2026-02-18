@@ -24,6 +24,10 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Run tests
+        env:
+          TENANT_ID: test
+          CLIENT_ID: test
+          NEO4J_PASSWORD: test
         run: pytest --tb=short -q
 
   helm-lint:
