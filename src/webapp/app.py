@@ -1,7 +1,11 @@
 """FastAPI application factory."""
 
 from contextlib import asynccontextmanager
+from pathlib import Path
+
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from shared.config import WebappConfig
 from shared.neo4j_client import Neo4jClient
 from webapp.auth import SessionStore
@@ -34,5 +38,17 @@ def create_app() -> FastAPI:
     @app.get("/api/health")
     def health():
         return {"status": "ok"}
+
+    # Serve React SPA static files in production
+    static_dir = Path(__file__).parent.parent.parent / "frontend" / "dist"
+    if static_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(static_dir / "assets")), name="assets")
+
+        @app.get("/{path:path}")
+        def spa_fallback(path: str):
+            file_path = static_dir / path
+            if file_path.exists() and file_path.is_file():
+                return FileResponse(str(file_path))
+            return FileResponse(str(static_dir / "index.html"))
 
     return app

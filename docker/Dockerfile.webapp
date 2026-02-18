@@ -1,0 +1,20 @@
+# Stage 1: Build React frontend
+FROM node:20-alpine AS frontend-build
+WORKDIR /app/frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+ARG VITE_CLIENT_ID
+ARG VITE_TENANT_ID
+RUN npm run build
+
+# Stage 2: Python backend
+FROM python:3.11-slim
+WORKDIR /app
+COPY pyproject.toml ./
+COPY src/ ./src/
+RUN pip install --no-cache-dir .
+COPY --from=frontend-build /app/frontend/dist ./frontend/dist
+ENV PYTHONPATH=/app/src
+EXPOSE 8000
+CMD ["python", "-m", "webapp"]
