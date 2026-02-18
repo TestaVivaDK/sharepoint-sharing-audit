@@ -46,6 +46,10 @@ def create_app() -> FastAPI:
 
         @app.get("/{path:path}")
         def spa_fallback(path: str):
+            # Never intercept API routes — return 404 so missing endpoints are visible
+            if path.startswith("api/"):
+                from fastapi import HTTPException
+                raise HTTPException(status_code=404, detail="API endpoint not found")
             file_path = (static_dir / path).resolve()
             if file_path.is_relative_to(static_dir) and file_path.exists() and file_path.is_file():
                 return FileResponse(str(file_path))

@@ -12,6 +12,7 @@ CSV_COLUMNS = [
     ("SharingType", "sharing_type"),
     ("SharedWith", "shared_with"),
     ("SharedWithType", "shared_with_type"),
+    ("Role", "role"),
 ]
 
 RISK_ORDER = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}

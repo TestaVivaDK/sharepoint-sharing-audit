@@ -25,7 +25,7 @@ async def login(body: LoginRequest, request: Request, response: Response):
     config = request.app.state.config
     try:
         user_info = await decode_id_token(
-            body.id_token, config.graph_api.client_id, config.graph_api.tenant_id
+            body.id_token, config.auth.client_id, config.auth.tenant_id
         )
     except Exception as e:
         logger.warning(f"Login failed: {e}")

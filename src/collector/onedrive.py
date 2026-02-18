@@ -60,11 +60,13 @@ def _walk_drive_items(
             elif sharing_type == "Link-Organization":
                 shared_email = "organization"
 
-            neo4j.merge_file(drive_id, item["id"], item_path, web_url, item_type)
-            neo4j.merge_user(shared_email, shared_info["shared_with"], shared_info["shared_with_type"])
-            neo4j.merge_shared_with(
+            neo4j.merge_permission(
+                site_id=site_id,
                 drive_id=drive_id, item_id=item["id"],
+                item_path=item_path, web_url=web_url, file_type=item_type,
                 user_email=shared_email,
+                user_display_name=shared_info["shared_with"],
+                user_source=shared_info["shared_with_type"],
                 sharing_type=sharing_type,
                 shared_with_type=shared_info["shared_with_type"],
                 role=role, risk_level=risk,
@@ -72,8 +74,6 @@ def _walk_drive_items(
                 run_id=run_id,
                 granted_by=granted_by,
             )
-            neo4j.merge_contains(site_id, drive_id, item["id"])
-            neo4j.mark_file_found(drive_id, item["id"], run_id)
             count += 1
 
         # Recurse into folders

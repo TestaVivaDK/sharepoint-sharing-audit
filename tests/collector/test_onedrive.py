@@ -31,8 +31,7 @@ class TestCollectOneDriveUser:
         count = collect_onedrive_user(graph, neo4j, user, "run-1", "test.dk")
 
         assert count == 1
-        neo4j.merge_file.assert_called_once()
-        neo4j.merge_shared_with.assert_called_once()
+        neo4j.merge_permission.assert_called_once()
 
     def test_skips_user_without_drive(self):
         graph = MagicMock()

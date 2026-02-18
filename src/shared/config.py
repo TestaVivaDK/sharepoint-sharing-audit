@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass, field
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv()  # noqa: E402 — must run before dataclass defaults read os.environ
 
 
 @dataclass(frozen=True)
@@ -37,7 +37,14 @@ class ReporterConfig:
 
 
 @dataclass(frozen=True)
+class WebappAuthConfig:
+    """Auth config for the webapp — only needs tenant_id and client_id (no client_secret)."""
+    tenant_id: str = field(default_factory=lambda: os.environ["TENANT_ID"])
+    client_id: str = field(default_factory=lambda: os.environ["CLIENT_ID"])
+
+
+@dataclass(frozen=True)
 class WebappConfig:
-    graph_api: GraphApiConfig = field(default_factory=GraphApiConfig)
+    auth: WebappAuthConfig = field(default_factory=WebappAuthConfig)
     neo4j: Neo4jConfig = field(default_factory=Neo4jConfig)
     tenant_domain: str = field(default_factory=lambda: os.environ.get("TENANT_DOMAIN", ""))

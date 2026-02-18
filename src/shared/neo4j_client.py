@@ -134,3 +134,57 @@ class Neo4jClient:
                MERGE (r)-[:FOUND]->(f)""",
             {"runId": run_id, "driveId": drive_id, "itemId": item_id},
         )
+
+    def merge_permission(
+        self,
+        site_id: str,
+        drive_id: str,
+        item_id: str,
+        item_path: str,
+        web_url: str,
+        file_type: str,
+        user_email: str,
+        user_display_name: str,
+        user_source: str,
+        sharing_type: str,
+        shared_with_type: str,
+        role: str,
+        risk_level: str,
+        created_date_time: str,
+        run_id: str,
+        granted_by: str = "",
+    ):
+        """Upsert File, User, SHARED_WITH, CONTAINS, and FOUND in a single transaction."""
+        self.execute(
+            """
+            MERGE (f:File {driveId: $driveId, itemId: $itemId})
+            SET f.path = $path, f.webUrl = $webUrl, f.type = $fileType
+            WITH f
+            MERGE (u:User {email: $userEmail})
+            SET u.displayName = $userName, u.source = $userSource
+            WITH f, u
+            MERGE (f)-[s:SHARED_WITH]->(u)
+            SET s.sharingType = $sharingType,
+                s.sharedWithType = $sharedWithType,
+                s.role = $role,
+                s.riskLevel = $riskLevel,
+                s.createdDateTime = $created,
+                s.lastSeenRunId = $runId,
+                s.grantedBy = $grantedBy
+            WITH f
+            MATCH (site:Site {siteId: $siteId})
+            MERGE (site)-[:CONTAINS]->(f)
+            WITH f
+            MATCH (r:ScanRun {runId: $runId})
+            MERGE (r)-[:FOUND]->(f)
+            """,
+            {
+                "driveId": drive_id, "itemId": item_id,
+                "path": item_path, "webUrl": web_url, "fileType": file_type,
+                "userEmail": user_email, "userName": user_display_name, "userSource": user_source,
+                "sharingType": sharing_type, "sharedWithType": shared_with_type,
+                "role": role, "riskLevel": risk_level,
+                "created": created_date_time, "runId": run_id,
+                "grantedBy": granted_by, "siteId": site_id,
+            },
+        )

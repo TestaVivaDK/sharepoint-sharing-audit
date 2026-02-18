@@ -33,11 +33,6 @@ spec:
                 secretKeyRef:
                   name: {{ include "sharing-audit.secretName" . }}
                   key: client-id
-            - name: CLIENT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "sharing-audit.secretName" . }}
-                  key: client-secret
             - name: NEO4J_URI
               value: bolt://{{ .Release.Name }}-neo4j:7687
             - name: NEO4J_USER
