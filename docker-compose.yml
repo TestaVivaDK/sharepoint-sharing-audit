@@ -1,0 +1,44 @@
+services:
+  neo4j:
+    image: neo4j:5-community
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-changeme}
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j-data:/data
+
+  collector:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.collector
+    environment:
+      TENANT_ID: ${TENANT_ID}
+      CLIENT_ID: ${CLIENT_ID}
+      CLIENT_SECRET: ${CLIENT_SECRET}
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-changeme}
+      DELAY_MS: ${DELAY_MS:-100}
+    depends_on:
+      - neo4j
+
+  reporter:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.reporter
+    environment:
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-changeme}
+      TENANT_DOMAIN: ${TENANT_DOMAIN:-testaviva.dk}
+      SENSITIVE_FOLDERS: ${SENSITIVE_FOLDERS:-ledelse,ledelsen,datarum,løn}
+      REPORT_OUTPUT_DIR: /reports
+    volumes:
+      - ./reports:/reports
+    depends_on:
+      - neo4j
+
+volumes:
+  neo4j-data:
