@@ -1,3 +1,0 @@
-collector
-reporter
-shared

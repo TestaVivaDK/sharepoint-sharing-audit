@@ -14,6 +14,8 @@ collector:
   imagePullPolicy: IfNotPresent
   schedule: "0 2 * * 0"
   delayMs: 100
+  usersToAudit: ""
+  skipSharepoint: "false"
   resources:
     requests:
       memory: 256Mi
@@ -25,8 +27,8 @@ reporter:
   image: sharing-audit-reporter:latest
   imagePullPolicy: IfNotPresent
   schedule: "0 6 * * 0"
-  sensitiveFolders: "ledelse,ledelsen,datarum,løn"
-  tenantDomain: ""
+  tenantDomain: "testaviva.dk"
+  webappUrl: ""
   resources:
     requests:
       memory: 512Mi
@@ -34,11 +36,34 @@ reporter:
     limits:
       memory: 1Gi
 
+webapp:
+  enabled: true
+  image: sharing-audit-webapp:latest
+  imagePullPolicy: IfNotPresent
+  replicas: 1
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+  ingress:
+    enabled: false
+    className: ""
+    host: ""
+    annotations: {}
+    tls: []
+
 reports:
   storage: 5Gi
   storageClass: ""
 
 secrets:
+  # -- Use an existing secret instead of creating one. The secret must contain
+  # keys: tenant-id, client-id, client-secret, neo4j-password, neo4j-auth
+  # Compatible with SealedSecrets, ExternalSecrets, or any pre-provisioned Secret.
+  existingSecret: ""
+  # -- Only used when existingSecret is empty (chart creates its own Secret)
   tenantId: ""
   clientId: ""
   clientSecret: ""

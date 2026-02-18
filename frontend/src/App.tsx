@@ -17,11 +17,15 @@ function App() {
       scopes: loginScopes,
       account: accounts[0],
     }).then(async (response) => {
-      await fetch('/api/auth/login', {
+      const resp = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id_token: response.idToken }),
       })
+      if (!resp.ok) {
+        console.error('Session creation failed:', resp.status)
+        return
+      }
       setSessionReady(true)
     }).catch(console.error)
   }, [isAuthenticated, accounts, instance])

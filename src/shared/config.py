@@ -33,6 +33,7 @@ class ReporterConfig:
     neo4j: Neo4jConfig = field(default_factory=Neo4jConfig)
     tenant_domain: str = field(default_factory=lambda: os.environ.get("TENANT_DOMAIN", ""))
     output_dir: str = field(default_factory=lambda: os.environ.get("REPORT_OUTPUT_DIR", "./reports"))
+    webapp_url: str = field(default_factory=lambda: os.environ.get("WEBAPP_URL", ""))
 
 
 @dataclass(frozen=True)
@@ -40,4 +41,3 @@ class WebappConfig:
     graph_api: GraphApiConfig = field(default_factory=GraphApiConfig)
     neo4j: Neo4jConfig = field(default_factory=Neo4jConfig)
     tenant_domain: str = field(default_factory=lambda: os.environ.get("TENANT_DOMAIN", ""))
-    session_secret: str = field(default_factory=lambda: os.environ.get("SESSION_SECRET", "dev-secret-change-me"))

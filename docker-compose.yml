@@ -54,7 +54,6 @@ services:
       NEO4J_USER: neo4j
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:-changeme}
       TENANT_DOMAIN: ${TENANT_DOMAIN:-testaviva.dk}
-      SESSION_SECRET: ${SESSION_SECRET:-change-me-in-production}
     ports:
       - "8000:8000"
     depends_on:

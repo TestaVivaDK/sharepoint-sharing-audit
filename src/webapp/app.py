@@ -10,7 +10,7 @@ from shared.config import WebappConfig
 from shared.neo4j_client import Neo4jClient
 from webapp.auth import SessionStore
 from webapp.routes_auth import router as auth_router
-from webapp import routes_files
+from webapp.routes_files import router as files_router
 from webapp.routes_unshare import router as unshare_router
 
 
@@ -18,10 +18,10 @@ from webapp.routes_unshare import router as unshare_router
 async def lifespan(app: FastAPI):
     config = app.state.config
     neo4j = Neo4jClient(config.neo4j.uri, config.neo4j.user, config.neo4j.password)
-    routes_files._neo4j = neo4j
+    app.state.neo4j = neo4j
     yield
     neo4j.close()
-    routes_files._neo4j = None
+    app.state.neo4j = None
 
 
 def create_app() -> FastAPI:
@@ -32,7 +32,7 @@ def create_app() -> FastAPI:
     app.state.sessions = SessionStore()
 
     app.include_router(auth_router)
-    app.include_router(routes_files.router)
+    app.include_router(files_router)
     app.include_router(unshare_router)
 
     @app.get("/api/health")
@@ -46,8 +46,8 @@ def create_app() -> FastAPI:
 
         @app.get("/{path:path}")
         def spa_fallback(path: str):
-            file_path = static_dir / path
-            if file_path.exists() and file_path.is_file():
+            file_path = (static_dir / path).resolve()
+            if file_path.is_relative_to(static_dir) and file_path.exists() and file_path.is_file():
                 return FileResponse(str(file_path))
             return FileResponse(str(static_dir / "index.html"))
 

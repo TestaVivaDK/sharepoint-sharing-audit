@@ -14,12 +14,12 @@
     .summary-card.high { background: #dc3545; }
     .summary-card.medium { background: #f0ad4e; color: #333; }
     .summary-card.low { background: #5cb85c; }
-    .intro { background: #f4f7fb; padding: 12px 16px; border-left: 4px solid #1a3c6e; margin: 15px 0; }
-    .howto { background: #fff8e6; padding: 12px 16px; border-left: 4px solid #f0ad4e; margin: 15px 0; }
+    .intro { background: #f4f7fb; padding: 12px 16px; border-left: 4px solid #1a3c6e; margin: 15px 0; font-size: 10px; }
+    .howto { background: #fff8e6; padding: 12px 16px; border-left: 4px solid #f0ad4e; margin: 15px 0; font-size: 10px; }
     .howto ol { margin: 6px 0; padding-left: 20px; }
     table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 10px; }
     th { background: #1a3c6e; color: #fff; padding: 7px 8px; text-align: left; }
-    td { padding: 5px 8px; border-bottom: 1px solid #ddd; word-break: break-word; }
+    td { padding: 5px 8px; border-bottom: 1px solid #ddd; }
     tr.high { background: #fce4e4; }
     tr.medium { background: #fff8e6; }
     tr.low { background: #eaf6ea; }
@@ -27,16 +27,25 @@
     .badge.high { background: #dc3545; }
     .badge.medium { background: #f0ad4e; color: #333; }
     .badge.low { background: #5cb85c; }
-    .filepath { font-size: 9px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+    .score { font-weight: bold; font-size: 11px; text-align: center; }
+    .score-critical { color: #dc3545; }
+    .score-high { color: #e67e22; }
+    .score-medium { color: #d4a017; }
+    .score-low { color: #5cb85c; }
+    .filepath { font-size: 9px; max-width: 250px; overflow: hidden; text-overflow: ellipsis; }
     a { color: #2c5aa0; }
     .footer { margin-top: 20px; font-size: 9px; color: #888; border-top: 1px solid #ddd; padding-top: 8px; }
+    .scoring-table { width: auto; margin: 8px 0; font-size: 10px; }
+    .scoring-table th { background: #2c5aa0; padding: 4px 10px; }
+    .scoring-table td { padding: 4px 10px; }
+    .scoring-table tr:nth-child(even) { background: #f0f4fa; }
 </style>
 </head>
 <body>
 
 <h1>{{ title | e }}</h1>
 {% if user_label %}<p class="subtitle">User: <strong>{{ user_label | e }}</strong></p>{% endif %}
-<p class="subtitle">Generated: {{ generated_at }} | Total items: {{ records | length }}</p>
+<p class="subtitle">Generated: {{ generated_at }} | Unique shared items: {{ records | length }}</p>
 
 <div class="summary-box">
     <div class="summary-card high">HIGH: {{ high_count }}</div>
@@ -44,11 +53,35 @@
     <div class="summary-card low">LOW: {{ low_count }}</div>
 </div>
 
-<h2>Risk Model</h2>
+<h2>Risk Score (0&ndash;100)</h2>
 <div class="intro">
-    <p>Each shared item is assigned a risk level based on who can access it:</p>
+    <p>Each shared item receives a numerical risk score from 0 to 100, calculated from six weighted factors:</p>
+    <table class="scoring-table">
+        <thead>
+            <tr><th>Factor</th><th>Max</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+            <tr><td><strong>Audience scope</strong></td><td>30</td><td>Anonymous link (30), External/guest (25), Organization-wide (15), Specific internal people (5)</td></tr>
+            <tr><td><strong>Recipient count</strong></td><td>15</td><td>20+ people (15), 6&ndash;19 (10), 2&ndash;5 (5), 1 person (2)</td></tr>
+            <tr><td><strong>Sensitive content</strong></td><td>20</td><td>File or folder name contains sensitive keywords: l&oslash;n, personale, kontrakt, CPR, fortrolig, budget, etc.</td></tr>
+            <tr><td><strong>File type</strong></td><td>15</td><td>Spreadsheets/documents/PDF (15), other files (8), images/media (3)</td></tr>
+            <tr><td><strong>Permission level</strong></td><td>10</td><td>Edit/write access (10), read-only (3)</td></tr>
+            <tr><td><strong>Asset type</strong></td><td>10</td><td>Shared folder (10), single file (3)</td></tr>
+        </tbody>
+    </table>
+    <p style="margin-top: 8px;">
+        <strong style="color:#dc3545;">70&ndash;100 Critical</strong> &nbsp;|&nbsp;
+        <strong style="color:#e67e22;">50&ndash;69 High</strong> &nbsp;|&nbsp;
+        <strong style="color:#d4a017;">25&ndash;49 Medium</strong> &nbsp;|&nbsp;
+        <strong style="color:#5cb85c;">0&ndash;24 Low</strong>
+    </p>
+</div>
+
+<h2>Risk Level</h2>
+<div class="intro">
+    <p>In addition to the score, each item is assigned a categorical risk level:</p>
     <ul>
-        <li><strong style="color:#dc3545;">HIGH</strong> &mdash; Anonymous links, external/guest sharing, or files in sensitive folders (ledelse/l&oslash;n/datarum).</li>
+        <li><strong style="color:#dc3545;">HIGH</strong> &mdash; Anonymous links, external/guest sharing, or files/folders with sensitive keywords (l&oslash;n, ledelse, personale, kontrakt, CPR, fortrolig, budget, GDPR, etc.).</li>
         <li><strong style="color:#d4a017;">MEDIUM</strong> &mdash; Organization-wide links accessible to all employees.</li>
         <li><strong style="color:#5cb85c;">LOW</strong> &mdash; Shared with specific named people inside the organization.</li>
     </ul>
@@ -56,6 +89,10 @@
 
 <h2>How to Remove or Change Sharing</h2>
 <div class="howto">
+    {% if webapp_url %}
+    <p><strong>Self-service dashboard:</strong> Log in at <a href="{{ webapp_url | e }}">{{ webapp_url | e }}</a> to view your shared files and bulk-unshare directly.</p>
+    {% endif %}
+    <p><strong>Manual steps:</strong></p>
     <ol>
         <li>Click the <strong>Open file</strong> link in the table below.</li>
         <li>Click the <strong>Share</strong> button in the top-right corner.</li>
@@ -67,7 +104,7 @@
                 <li><strong>Restrict org-wide:</strong> delete the org link, create a new specific-people link.</li>
             </ul>
         </li>
-        <li>Start from <strong style="color:#dc3545;">HIGH</strong> risk items at the top.</li>
+        <li>Start from the highest-scored items at the top.</li>
     </ol>
 </div>
 
@@ -75,20 +112,26 @@
 <table>
     <thead>
         <tr>
-            <th style="width:60px;">Risk</th>
-            <th>File Path</th>
-            <th style="width:70px;">Link</th>
-            <th style="width:110px;">Sharing Type</th>
+            <th style="width:45px;">Score</th>
+            <th style="width:55px;">Risk</th>
+            <th style="width:65px;">Source</th>
+            <th style="width:40px;">Type</th>
+            <th>File / Folder Path</th>
+            <th style="width:55px;">Link</th>
+            <th style="width:100px;">Sharing Type</th>
             <th>Shared With</th>
-            <th style="width:80px;">Audience</th>
+            <th style="width:75px;">Audience</th>
         </tr>
     </thead>
     <tbody>
     {% for r in records %}
         <tr class="{{ r.risk_level | lower }}">
+            <td class="score {% if r.risk_score >= 70 %}score-critical{% elif r.risk_score >= 50 %}score-high{% elif r.risk_score >= 25 %}score-medium{% else %}score-low{% endif %}">{{ r.risk_score }}</td>
             <td><span class="badge {{ r.risk_level | lower }}">{{ r.risk_level }}</span></td>
+            <td>{{ r.source | e }}</td>
+            <td>{{ r.item_type | e }}</td>
             <td class="filepath">{{ r.item_path | e }}</td>
-            <td>{% if r.item_web_url %}<a href="{{ r.item_web_url | e }}">Open file</a>{% else %}-{% endif %}</td>
+            <td>{% if r.item_web_url %}<a href="{{ r.item_web_url | e }}">Open</a>{% else %}-{% endif %}</td>
             <td>{{ r.sharing_type | e }}</td>
             <td>{{ r.shared_with | e }}</td>
             <td>{{ r.shared_with_type | e }}</td>
@@ -98,7 +141,7 @@
 </table>
 
 <div class="footer">
-    Report generated by Sharing Audit Pipeline. Work through items top to bottom.
+    Report generated by Sharing Audit Pipeline. Work through items top to bottom &mdash; highest risk score first.
 </div>
 
 </body>

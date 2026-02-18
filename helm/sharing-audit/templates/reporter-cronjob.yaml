@@ -22,20 +22,20 @@ spec:
                 - name: NEO4J_PASSWORD
                   valueFrom:
                     secretKeyRef:
-                      name: {{ .Release.Name }}-secrets
+                      name: {{ include "sharing-audit.secretName" . }}
                       key: neo4j-password
                 - name: TENANT_DOMAIN
                   valueFrom:
                     configMapKeyRef:
                       name: {{ .Release.Name }}-config
                       key: tenant-domain
-                - name: SENSITIVE_FOLDERS
+                - name: REPORT_OUTPUT_DIR
+                  value: /reports
+                - name: WEBAPP_URL
                   valueFrom:
                     configMapKeyRef:
                       name: {{ .Release.Name }}-config
-                      key: sensitive-folders
-                - name: REPORT_OUTPUT_DIR
-                  value: /reports
+                      key: webapp-url
               resources:
                 {{- toYaml .Values.reporter.resources | nindent 16 }}
               volumeMounts:

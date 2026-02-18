@@ -27,7 +27,7 @@ spec:
             - name: NEO4J_AUTH
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Release.Name }}-secrets
+                  name: {{ include "sharing-audit.secretName" . }}
                   key: neo4j-auth
           resources:
             {{- toYaml .Values.neo4j.resources | nindent 12 }}

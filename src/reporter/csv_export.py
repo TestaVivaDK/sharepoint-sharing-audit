@@ -3,15 +3,15 @@
 import csv
 
 CSV_COLUMNS = [
+    ("RiskScore", "risk_score"),
     ("RiskLevel", "risk_level"),
     ("Source", "source"),
+    ("Type", "item_type"),
     ("ItemPath", "item_path"),
     ("ItemWebUrl", "item_web_url"),
     ("SharingType", "sharing_type"),
     ("SharedWith", "shared_with"),
     ("SharedWithType", "shared_with_type"),
-    ("Role", "role"),
-    ("CreatedDateTime", "created_date_time"),
 ]
 
 RISK_ORDER = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}

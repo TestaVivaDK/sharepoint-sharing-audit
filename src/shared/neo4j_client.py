@@ -80,6 +80,7 @@ class Neo4jClient:
         risk_level: str,
         created_date_time: str,
         run_id: str,
+        granted_by: str = "",
     ):
         """Upsert a SHARED_WITH relationship between a File and a User."""
         self.execute(
@@ -91,7 +92,8 @@ class Neo4jClient:
                    s.role = $role,
                    s.riskLevel = $riskLevel,
                    s.createdDateTime = $created,
-                   s.lastSeenRunId = $runId""",
+                   s.lastSeenRunId = $runId,
+                   s.grantedBy = $grantedBy""",
             {
                 "driveId": drive_id,
                 "itemId": item_id,
@@ -102,6 +104,7 @@ class Neo4jClient:
                 "riskLevel": risk_level,
                 "created": created_date_time,
                 "runId": run_id,
+                "grantedBy": granted_by,
             },
         )
 

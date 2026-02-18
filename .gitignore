@@ -7,8 +7,15 @@ dist/
 build/
 *.egg
 
-# Environment
+# Environment / secrets
 .env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+*.pem
+*.key
 .venv/
 venv/
 env/
@@ -38,10 +45,12 @@ neo4j-data/
 # Frontend
 frontend/node_modules/
 frontend/dist/
-frontend/.env.local
+# (covered by **/.env.* above)
 
 # Misc
 .grepai/
 *.tmp
 *.log
 Invoke-SharingAudit.ps1
+.serena/
+src/sharing_audit.egg-info/

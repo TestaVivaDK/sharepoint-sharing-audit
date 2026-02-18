@@ -1,7 +1,6 @@
 """Tests for CSV report generation."""
 
 import csv
-import io
 from reporter.csv_export import generate_csv
 
 

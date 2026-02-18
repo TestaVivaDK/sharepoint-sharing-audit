@@ -18,10 +18,10 @@ def get_last_scan_time(client: Neo4jClient) -> tuple[str | None, str | None]:
 
 
 def get_user_files(client: Neo4jClient, email: str, run_id: str) -> list[dict]:
-    """Get shared files owned by a specific user, with sharing details."""
+    """Get shared files where the current user granted the sharing permission."""
     result = client.execute("""
-        MATCH (owner:User {email: $email})-[:OWNS]->(site:Site)-[:CONTAINS]->(f:File)
-        MATCH (f)-[s:SHARED_WITH {lastSeenRunId: $runId}]->(shared_user:User)
+        MATCH (f:File)-[s:SHARED_WITH {lastSeenRunId: $runId, grantedBy: $email}]->(shared_user:User)
+        MATCH (site:Site)-[:CONTAINS]->(f)
         RETURN
             f.driveId AS drive_id,
             f.itemId AS item_id,

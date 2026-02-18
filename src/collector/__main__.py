@@ -2,7 +2,6 @@
 
 import logging
 import os
-import sys
 
 from shared.config import CollectorConfig
 from shared.neo4j_client import Neo4jClient

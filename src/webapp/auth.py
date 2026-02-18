@@ -5,6 +5,7 @@ import uuid
 from typing import Optional
 
 import httpx
+from fastapi import Request, HTTPException
 from jose import jwt
 
 
@@ -46,19 +47,22 @@ def validate_id_token_claims(claims: dict, client_id: str, tenant_id: str) -> di
     return {"email": email, "name": name}
 
 
-_jwks_cache: dict = {}
+_jwks_cache: dict = {}  # {tenant_id: {"data": ..., "fetched_at": float}}
+_JWKS_TTL = 86400  # 24 hours
 
 
 async def get_entra_jwks(tenant_id: str) -> dict:
-    """Fetch Microsoft Entra JWKS (cached)."""
-    if tenant_id in _jwks_cache:
-        return _jwks_cache[tenant_id]
+    """Fetch Microsoft Entra JWKS (cached with 24h TTL)."""
+    cached = _jwks_cache.get(tenant_id)
+    if cached and time.time() - cached["fetched_at"] < _JWKS_TTL:
+        return cached["data"]
     url = f"https://login.microsoftonline.com/{tenant_id}/discovery/v2.0/keys"
     async with httpx.AsyncClient() as client:
         resp = await client.get(url)
         resp.raise_for_status()
-        _jwks_cache[tenant_id] = resp.json()
-        return _jwks_cache[tenant_id]
+        data = resp.json()
+        _jwks_cache[tenant_id] = {"data": data, "fetched_at": time.time()}
+        return data
 
 
 async def decode_id_token(token: str, client_id: str, tenant_id: str) -> dict:
@@ -77,3 +81,14 @@ async def decode_id_token(token: str, client_id: str, tenant_id: str) -> dict:
         issuer=f"https://login.microsoftonline.com/{tenant_id}/v2.0",
     )
     return validate_id_token_claims(claims, client_id, tenant_id)
+
+
+def require_session(request: Request) -> dict:
+    """FastAPI dependency: get current session or raise 401."""
+    sid = request.cookies.get("session_id")
+    if not sid:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    session = request.app.state.sessions.get(sid)
+    if not session:
+        raise HTTPException(status_code=401, detail="Session expired")
+    return session

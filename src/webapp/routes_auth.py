@@ -2,10 +2,10 @@
 
 import logging
 
-from fastapi import APIRouter, Request, Response, HTTPException
+from fastapi import APIRouter, Request, Response, HTTPException, Depends
 from pydantic import BaseModel
 
-from webapp.auth import decode_id_token
+from webapp.auth import decode_id_token, require_session
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -15,20 +15,8 @@ class LoginRequest(BaseModel):
     id_token: str
 
 
-def _get_session(request: Request) -> dict:
-    """Get current session or raise 401."""
-    sid = request.cookies.get("session_id")
-    if not sid:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    session = request.app.state.sessions.get(sid)
-    if not session:
-        raise HTTPException(status_code=401, detail="Session expired")
-    return session
-
-
 @router.get("/me")
-def me(request: Request):
-    session = _get_session(request)
+def me(session: dict = Depends(require_session)):
     return {"email": session["email"], "name": session["name"]}
 
 
@@ -41,7 +29,7 @@ async def login(body: LoginRequest, request: Request, response: Response):
         )
     except Exception as e:
         logger.warning(f"Login failed: {e}")
-        raise HTTPException(status_code=401, detail=str(e))
+        raise HTTPException(status_code=401, detail="Authentication failed")
 
     sid = request.app.state.sessions.create(user_info["email"], user_info["name"])
     response.set_cookie(

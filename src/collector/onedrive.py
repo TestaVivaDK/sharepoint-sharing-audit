@@ -6,7 +6,7 @@ from collector.graph_client import GraphClient
 from shared.neo4j_client import Neo4jClient
 from shared.classify import (
     get_sharing_type, get_shared_with_info, get_risk_level,
-    get_permission_role,
+    get_permission_role, get_granted_by,
 )
 
 logger = logging.getLogger(__name__)
@@ -46,6 +46,7 @@ def _walk_drive_items(
             sharing_type = get_sharing_type(perm)
             shared_info = get_shared_with_info(perm, tenant_domain)
             role = get_permission_role(perm)
+            granted_by = get_granted_by(perm) or owner_email
             risk = get_risk_level(sharing_type, shared_info["shared_with_type"], item_path)
 
             # Skip owner's own "owner" permission
@@ -69,6 +70,7 @@ def _walk_drive_items(
                 role=role, risk_level=risk,
                 created_date_time=perm.get("createdDateTime", ""),
                 run_id=run_id,
+                granted_by=granted_by,
             )
             neo4j.merge_contains(site_id, drive_id, item["id"])
             neo4j.mark_file_found(drive_id, item["id"], run_id)

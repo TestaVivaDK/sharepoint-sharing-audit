@@ -4,5 +4,7 @@ metadata:
   name: {{ .Release.Name }}-config
 data:
   delay-ms: {{ .Values.collector.delayMs | quote }}
-  sensitive-folders: {{ .Values.reporter.sensitiveFolders | quote }}
+  users-to-audit: {{ .Values.collector.usersToAudit | quote }}
+  skip-sharepoint: {{ .Values.collector.skipSharepoint | quote }}
   tenant-domain: {{ .Values.reporter.tenantDomain | quote }}
+  webapp-url: {{ .Values.reporter.webappUrl | quote }}

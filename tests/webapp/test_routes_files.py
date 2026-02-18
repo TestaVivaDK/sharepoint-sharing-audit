@@ -1,12 +1,14 @@
 # tests/webapp/test_routes_files.py
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from fastapi.testclient import TestClient
 from webapp.app import create_app
 
 
-def make_authed_client():
-    """Create a test client with a valid session."""
+def make_authed_client(mock_neo4j=None):
+    """Create a test client with a valid session and optional mock Neo4j."""
     app = create_app()
+    if mock_neo4j is not None:
+        app.state.neo4j = mock_neo4j
     client = TestClient(app)
     sid = app.state.sessions.create("user@test.com", "Test User")
     client.cookies.set("session_id", sid)
@@ -14,10 +16,8 @@ def make_authed_client():
 
 
 class TestFilesEndpoint:
-    @patch("webapp.routes_files.get_neo4j")
-    def test_returns_files_for_authenticated_user(self, mock_get_neo4j):
+    def test_returns_files_for_authenticated_user(self):
         mock_neo4j = MagicMock()
-        mock_get_neo4j.return_value = mock_neo4j
         mock_neo4j.execute.side_effect = [
             # get_last_scan_time
             [{"runId": "run-1", "timestamp": "2026-02-18T12:00:00Z"}],
@@ -33,7 +33,7 @@ class TestFilesEndpoint:
                 }
             ],
         ]
-        client, app = make_authed_client()
+        client, app = make_authed_client(mock_neo4j)
         resp = client.get("/api/files")
         assert resp.status_code == 200
         data = resp.json()
@@ -48,10 +48,8 @@ class TestFilesEndpoint:
 
 
 class TestStatsEndpoint:
-    @patch("webapp.routes_files.get_neo4j")
-    def test_returns_stats(self, mock_get_neo4j):
+    def test_returns_stats(self):
         mock_neo4j = MagicMock()
-        mock_get_neo4j.return_value = mock_neo4j
         mock_neo4j.execute.side_effect = [
             # get_last_scan_time
             [{"runId": "run-1", "timestamp": "2026-02-18T12:00:00Z"}],
@@ -64,7 +62,7 @@ class TestStatsEndpoint:
                  "shared_with_type": "Anonymous", "role": "Read"},
             ],
         ]
-        client, app = make_authed_client()
+        client, app = make_authed_client(mock_neo4j)
         resp = client.get("/api/stats")
         assert resp.status_code == 200
         data = resp.json()

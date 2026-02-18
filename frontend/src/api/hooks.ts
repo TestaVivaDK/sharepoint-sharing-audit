@@ -35,11 +35,19 @@ export function useUnshare() {
 
   return useMutation({
     mutationFn: async (fileIds: string[]) => {
-      // Acquire Graph API token for the delegated unshare call
-      const tokenResponse = await instance.acquireTokenSilent({
-        scopes: graphScopes,
-        account: accounts[0],
-      })
+      // Acquire Graph API token — fall back to popup for consent
+      let tokenResponse
+      try {
+        tokenResponse = await instance.acquireTokenSilent({
+          scopes: graphScopes,
+          account: accounts[0],
+        })
+      } catch {
+        tokenResponse = await instance.acquireTokenPopup({
+          scopes: graphScopes,
+          account: accounts[0],
+        })
+      }
 
       return apiFetch<UnshareResponse>('/api/unshare', {
         method: 'POST',

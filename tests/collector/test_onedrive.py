@@ -1,6 +1,6 @@
 """Tests for OneDrive collection logic."""
 
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 from collector.onedrive import collect_onedrive_user
 
 

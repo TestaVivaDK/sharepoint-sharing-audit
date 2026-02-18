@@ -1,7 +1,6 @@
 """Tests for Graph API client with mocked HTTP responses."""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 from collector.graph_client import GraphClient
 
 

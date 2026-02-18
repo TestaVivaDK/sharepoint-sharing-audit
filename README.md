@@ -1,256 +1,312 @@
 # SharePoint & OneDrive Sharing Audit
 
-A PowerShell script that audits all sharing permissions across your Microsoft 365 tenant's SharePoint sites and OneDrive accounts, producing per-user and combined CSV reports for access cleanup.
+## Why This Exists
+
+Organizations adopting AI copilots and agents that operate across SharePoint and OneDrive face a serious risk: **oversharing**. Most tenants have years of accumulated sharing permissions — anonymous links, org-wide links, external shares — that nobody remembers creating. When an AI agent indexes your document libraries, every one of those permissions becomes a potential path to knowledge that shouldn't be exposed.
+
+The problem is scale. A single user might have hundreds of shared files. Multiply that across a tenant and you get tens of thousands of sharing permissions that no admin can realistically review by hand.
+
+This tool automates that cleanup:
+
+1. **Scan** — the collector walks every OneDrive and SharePoint site via the Graph API and maps all sharing permissions into a Neo4j graph
+2. **Report** — the reporter generates PDF/CSV reports with risk scoring so admins can see the full picture
+3. **Fix** — the self-service webapp lets each user log in, see the files *they* shared, and bulk-unshare with one click
+
+The goal is to get your tenant to a clean sharing baseline before you turn on AI-powered search, copilots, or agents — and to keep it clean with regular scans.
+
+## Architecture
+
+```
+┌─────────────┐      Microsoft       ┌─────────┐      ┌──────────┐
+│  Collector   │─────Graph API───────▶│  Neo4j  │◀─────│ Reporter │
+│  (Python)    │   app-only auth      │  (graph │      │ (Python) │
+│              │   OneDrive + SP      │   DB)   │      │          │
+└─────────────┘   permissions         └─────────┘      └────┬─────┘
+                                           ▲                 │
+                                           │          ┌──────┴──────┐
+                                      ┌────┴─────┐   │  PDF + CSV  │
+                                      │  Webapp   │   │   reports   │
+                                      │ FastAPI + │   └─────────────┘
+                                      │  React    │
+                                      └──────────┘
+                                       delegated
+                                       auth (MSAL)
+```
+
+- **Collector** — Walks OneDrive and SharePoint drives via Microsoft Graph API, collects all explicit (non-inherited) sharing permissions, and stores them as a graph in Neo4j. Tracks who granted each permission via `grantedBy`.
+- **Reporter** — Queries Neo4j, deduplicates files, computes risk scores (0–100), and generates a combined PDF + CSV report for admins.
+- **Webapp** — React SPA with FastAPI backend. Users log in with their Microsoft Entra account, see only the files *they* shared (via `grantedBy`), and can bulk-unshare via the Graph API using delegated permissions.
+- **Neo4j** — Stores users, files, sites, and sharing relationships as a graph. Supports incremental collection with scan runs.
 
 ## Prerequisites
 
-- **PowerShell 7.0+** ([Install guide](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell))
-- **Microsoft Graph PowerShell SDK**
+- Python 3.11+
+- Node.js 18+ (for the frontend)
+- Docker (for Neo4j)
+- An Azure AD app registration with Microsoft Graph API permissions
 
-```powershell
-Install-Module Microsoft.Graph -Scope CurrentUser
+### Azure AD App Registration
+
+1. Go to [Azure Portal](https://portal.azure.com) > **Microsoft Entra ID** > **App registrations** > **New registration**
+2. Name it (e.g. "Sharing Audit"), single-tenant
+3. Under **Authentication** > **Platform configurations**, add a **Single-page application** redirect URI:
+   - Development: `http://localhost:5173`
+   - Production: your webapp URL
+4. Under **Certificates & secrets**, create a client secret
+5. Under **API permissions**, add these permissions for Microsoft Graph:
+
+**Application permissions** (for the collector and reporter — admin-consented):
+
+| Permission | Purpose |
+|------------|---------|
+| `User.Read.All` | Enumerate all users |
+| `Sites.Read.All` | Read all SharePoint sites and document libraries |
+| `Files.Read.All` | Read all OneDrive files and sharing permissions |
+
+**Delegated permissions** (for the webapp — user-consented):
+
+| Permission | Purpose |
+|------------|---------|
+| `User.Read` | Read the signed-in user's profile |
+| `Files.ReadWrite.All` | Remove sharing permissions on the user's files |
+
+6. Click **Grant admin consent** for the application permissions
+
+## Quick Start
+
+### 1. Start Neo4j
+
+```bash
+docker compose up -d neo4j
 ```
 
-The script uses these submodules (installed automatically with the above):
-- `Microsoft.Graph.Authentication`
-- `Microsoft.Graph.Users`
-- `Microsoft.Graph.Sites`
-- `Microsoft.Graph.Files`
+### 2. Configure environment
 
-## Authentication
-
-There are two ways to authenticate. **App-only is strongly recommended** for a full tenant audit.
-
-### Option 1: App-only authentication (recommended)
-
-App-only auth uses an Azure AD app registration with **application permissions**. This gives the script full read access to all users' OneDrive and SharePoint files, regardless of who runs the script.
-
-Interactive sign-in (Option 2) can only see files the signed-in user already has access to, which means you will miss most sharing data for other users.
-
-```powershell
-# With client secret
-./Invoke-SharingAudit.ps1 -TenantId "your-tenant-id" -ClientId "your-app-id" -ClientSecret "your-secret"
-
-# With certificate
-./Invoke-SharingAudit.ps1 -TenantId "your-tenant-id" -ClientId "your-app-id" -CertificateThumbprint "your-thumbprint"
+```bash
+cp .env.example .env
+# Edit .env with your Azure AD app credentials and Neo4j password
 ```
 
-#### How to set up the app registration
+### 3. Install dependencies
 
-**Step 1: Create the app**
-
-1. Go to [Azure Portal](https://portal.azure.com)
-2. Navigate to **Microsoft Entra ID** (formerly Azure Active Directory) > **App registrations**
-3. Click **New registration**
-4. Fill in:
-   - **Name**: `SharePoint Sharing Audit` (or any name you prefer)
-   - **Supported account types**: "Accounts in this organizational directory only (Single tenant)"
-   - **Redirect URI**: Leave blank
-5. Click **Register**
-6. On the overview page, copy and save:
-   - **Application (client) ID** — this is your `-ClientId`
-   - **Directory (tenant) ID** — this is your `-TenantId`
-
-**Step 2: Create a client secret**
-
-1. In your app registration, go to **Certificates & secrets**
-2. Click **New client secret**
-3. Set a description (e.g. "Sharing Audit") and expiry (e.g. 6 months)
-4. Click **Add**
-5. **Copy the secret value immediately** — you cannot retrieve it later. This is your `-ClientSecret`
-
-Alternatively, use a certificate for more secure authentication:
-1. Go to **Certificates & secrets** > **Certificates** > **Upload certificate**
-2. Upload your `.cer` or `.pem` file
-3. Note the **Thumbprint** — this is your `-CertificateThumbprint`
-
-**Step 3: Grant API permissions**
-
-1. In your app registration, go to **API permissions**
-2. Click **Add a permission** > **Microsoft Graph** > **Application permissions**
-3. Search for and add each of these permissions:
-
-| Permission | Why it's needed |
-|------------|-----------------|
-| `User.Read.All` | Enumerate all users in the tenant |
-| `Sites.Read.All` | Read all SharePoint sites and their document libraries |
-| `Files.Read.All` | Read all users' OneDrive files and sharing permissions |
-
-4. Click **Grant admin consent for [your organization]**
-5. Verify all three permissions show a green checkmark under "Status"
-
-These are all **read-only** permissions. The script never modifies, creates, or deletes any files or permissions.
-
-**Step 4: Run the script**
-
-```powershell
-./Invoke-SharingAudit.ps1 `
-    -TenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
-    -ClientId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
-    -ClientSecret "your-secret-value"
+```bash
+pip install -e .
 ```
 
-### Option 2: Interactive sign-in (limited)
+### 4. Run the collector
 
-```powershell
-./Invoke-SharingAudit.ps1
+```bash
+PYTHONPATH=src python -m collector
 ```
 
-A browser window will open for sign-in. You must sign in with a Global Admin or SharePoint Admin account.
+### 5. Run the reporter
 
-**Limitation:** Delegated auth can only see files the signed-in user has access to. Other users' unshared files will not appear in the report. This makes it unsuitable for a full tenant audit.
-
-## Usage examples
-
-### Audit all users in the tenant
-
-```powershell
-./Invoke-SharingAudit.ps1 -TenantId "..." -ClientId "..." -ClientSecret "..."
+```bash
+PYTHONPATH=src python -m reporter
 ```
 
-### Audit specific users only
+### 6. Run the webapp
 
-```powershell
-./Invoke-SharingAudit.ps1 -TenantId "..." -ClientId "..." -ClientSecret "..." `
-    -UsersToAudit "jdoe@contoso.com","asmith@contoso.com","bwilson@contoso.com"
+```bash
+# Build the frontend
+cd frontend && npm install && npm run build && cd ..
+
+# Start the server
+PYTHONPATH=src uvicorn webapp.app:create_app --factory --host 0.0.0.0 --port 8000
 ```
 
-### Skip OneDrive or SharePoint
+For development with hot reload:
 
-```powershell
-# SharePoint sites only
-./Invoke-SharingAudit.ps1 -TenantId "..." -ClientId "..." -ClientSecret "..." -SkipOneDrive
+```bash
+# Terminal 1: Frontend dev server
+cd frontend && npm run dev
 
-# OneDrive only
-./Invoke-SharingAudit.ps1 -TenantId "..." -ClientId "..." -ClientSecret "..." -SkipSharePoint
+# Terminal 2: Backend
+PYTHONPATH=src uvicorn webapp.app:create_app --factory --reload --port 8000
 ```
 
-### Custom output path
+The frontend dev server (Vite) proxies `/api` requests to the backend on port 8000.
 
-```powershell
-./Invoke-SharingAudit.ps1 -TenantId "..." -ClientId "..." -ClientSecret "..." -OutputPath "C:\Reports\audit.csv"
+## Environment Variables
+
+### Collector
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TENANT_ID` | required | Azure AD tenant ID |
+| `CLIENT_ID` | required | App registration client ID |
+| `CLIENT_SECRET` | required | Client secret |
+| `NEO4J_URI` | `bolt://localhost:7687` | Neo4j connection URI |
+| `NEO4J_USER` | `neo4j` | Neo4j username |
+| `NEO4J_PASSWORD` | required | Neo4j password |
+| `DELAY_MS` | `100` | Milliseconds between API calls |
+| `USERS_TO_AUDIT` | all users | Comma-separated UPNs to audit (e.g. `user@domain.com`) |
+| `SKIP_SHAREPOINT` | `false` | Set to `true` to skip SharePoint sites |
+
+### Reporter
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NEO4J_URI` | `bolt://localhost:7687` | Neo4j connection URI |
+| `NEO4J_USER` | `neo4j` | Neo4j username |
+| `NEO4J_PASSWORD` | required | Neo4j password |
+| `TENANT_DOMAIN` | — | Your tenant domain (e.g. `contoso.com`) for internal/external classification |
+| `REPORT_OUTPUT_DIR` | `./reports` | Directory for generated reports |
+
+### Webapp
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TENANT_ID` | required | Azure AD tenant ID |
+| `CLIENT_ID` | required | App registration client ID (same as collector) |
+| `CLIENT_SECRET` | required | Client secret (for token validation) |
+| `NEO4J_URI` | `bolt://localhost:7687` | Neo4j connection URI |
+| `NEO4J_USER` | `neo4j` | Neo4j username |
+| `NEO4J_PASSWORD` | required | Neo4j password |
+| `TENANT_DOMAIN` | — | Your tenant domain |
+
+The frontend also needs `VITE_CLIENT_ID` and `VITE_TENANT_ID` at build time (set in `frontend/.env` or passed as build args in Docker).
+
+## Docker Compose
+
+Run the full pipeline with Docker:
+
+```bash
+docker compose up neo4j -d        # Start Neo4j
+docker compose run collector       # Run collection
+docker compose run reporter        # Generate reports
+docker compose up webapp -d        # Start the webapp on port 8000
 ```
 
-### Adjust API throttling
-
-Default is 100ms between API calls. Increase if you hit rate limits:
-
-```powershell
-./Invoke-SharingAudit.ps1 -TenantId "..." -ClientId "..." -ClientSecret "..." -DelayMs 200
-```
-
-## Parameters
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `-TenantId` | string | — | Azure AD tenant ID (for app-only auth) |
-| `-ClientId` | string | — | App registration client ID (for app-only auth) |
-| `-ClientSecret` | string | — | Client secret (use this or `-CertificateThumbprint`) |
-| `-CertificateThumbprint` | string | — | Certificate thumbprint (use this or `-ClientSecret`) |
-| `-OutputPath` | string | `./SharingAudit_<timestamp>.csv` | Path for the combined CSV report |
-| `-DelayMs` | int | `100` | Milliseconds to pause between API calls (0-5000) |
-| `-SkipOneDrive` | switch | off | Skip OneDrive personal sites |
-| `-SkipSharePoint` | switch | off | Skip SharePoint sites |
-| `-UsersToAudit` | string[] | all users | Specific user UPNs to audit |
+Reports are saved to the `./reports/` directory.
 
 ## Output
 
-### Per-user CSV files
+The reporter generates one combined report containing all shared items across all users and SharePoint sites:
 
-Each user with shared items gets their own CSV file:
+- **PDF** — `SharingAudit_<timestamp>.pdf` — styled report with risk scores, sorted highest risk first
+- **CSV** — `SharingAudit_<timestamp>.csv` — same data in spreadsheet format
+
+### Risk Score (0–100)
+
+Each shared item receives a numerical risk score calculated from six weighted factors:
+
+| Factor | Max Points | Description |
+|--------|-----------|-------------|
+| **Audience scope** | 30 | Anonymous link (30), External/guest (25), Org-wide (15), Internal (5) |
+| **Recipient count** | 15 | 20+ people (15), 6–19 (10), 2–5 (5), 1 person (2) |
+| **Sensitive content** | 20 | File/folder name contains sensitive keywords (løn, personale, kontrakt, CPR, fortrolig, budget, GDPR, etc.) |
+| **File type** | 15 | Spreadsheets/documents/PDF (15), other files (8), images/media (3) |
+| **Permission level** | 10 | Edit/write access (10), read-only (3) |
+| **Asset type** | 10 | Shared folder (10), single file (3) |
+
+Score ranges: **70–100** Critical | **50–69** High | **25–49** Medium | **0–24** Low
+
+### Risk Level
+
+In addition to the numerical score, each item has a categorical risk level:
+
+| Level | Criteria |
+|-------|----------|
+| **HIGH** | Anonymous links, external/guest sharing, or files in sensitive folders |
+| **MEDIUM** | Organization-wide links accessible to all employees |
+| **LOW** | Shared with specific named internal people |
+
+### Deduplication
+
+Files are deduplicated in the report — each file appears once with all sharing details consolidated. If a file is shared with 5 different people, it shows as one row with all recipients listed. The risk score and level reflect the worst-case sharing for that file.
+
+### Source Column
+
+Each item shows its source: **OneDrive**, **SharePoint**, or **Teams** (Teams chat files stored in OneDrive are automatically tagged).
+
+## Webapp
+
+The web app provides a self-service dashboard where each user sees only the files they personally shared and can revoke those permissions.
+
+### Features
+
+- **Microsoft Entra login** — MSAL.js PKCE flow, single-tenant
+- **File list with risk scoring** — MUI DataGrid Pro with sorting, filtering, and search
+- **Filter by risk level and source** — quick-filter chips for HIGH/MEDIUM/LOW and OneDrive/SharePoint/Teams
+- **Bulk unshare** — select files and remove all direct sharing permissions via delegated Graph API calls
+- **Risk score ranking** — files sorted by numerical risk score (highest first)
+
+### How It Works
+
+1. User logs in with their Microsoft Entra account (MSAL.js PKCE)
+2. The backend validates the ID token and creates an httpOnly cookie session
+3. The backend queries Neo4j for `SHARED_WITH` relationships where `grantedBy` matches the user's email — this ensures users only see files they personally shared, not site-level group permissions
+4. To unshare, the frontend acquires a delegated Graph API token (`Files.ReadWrite.All`) and sends it to the backend, which removes all non-inherited permissions from the selected files
+
+### Tech Stack
+
+- **Backend:** FastAPI, python-jose (JWT validation), httpx
+- **Frontend:** React 19, TypeScript, MUI DataGrid Pro, TanStack Query, MSAL React
+- **Auth:** Microsoft Entra ID tokens validated against JWKS, in-memory session store
+
+## Sensitive Keywords
+
+The pipeline flags files and folders containing these Danish keywords as sensitive (contributing +20 to the risk score and triggering HIGH risk level):
+
+løn, ledelse, direktion, bestyrelse, datarum, personale, ansættelse, opsigelse, fratrædelse, regnskab, budget, økonomi, faktura, kontrakt, fortrolig, hemmelig, persondata, CPR, personfølsom, sundhed, syge, GDPR, pension, ferie, revision, inkasso, gæld, erstatning, disciplinær, advarsel, klage
+
+These are matched case-insensitively against the full file path (both folder names and file names).
+
+## Data Model (Neo4j)
 
 ```
-SharingAudit_jdoe@contoso.com_2026-02-17_183000.csv
-SharingAudit_asmith@contoso.com_2026-02-17_183000.csv
+(:User)-[:OWNS]->(:Site)-[:CONTAINS]->(:File)
+(:File)-[:SHARED_WITH {riskLevel, sharingType, role, grantedBy, ...}]->(:User)
+(:ScanRun)-[:FOUND]->(:File)
 ```
 
-A combined report with all users is also generated:
+- **User** — email, displayName, source
+- **Site** — OneDrive or SharePoint site (siteId, name, webUrl, source)
+- **File** — driveId, itemId, path, webUrl, type (File/Folder)
+- **SHARED_WITH** — sharing relationship: sharingType, sharedWithType, role, riskLevel, createdDateTime, grantedBy, lastSeenRunId
+- **ScanRun** — collection run with runId, timestamp, and status
 
-```
-SharingAudit_2026-02-17_183000.csv
-```
+The `grantedBy` field on `SHARED_WITH` stores the email of the user who created the sharing permission (extracted from Graph API's `grantedByV2`). This is used by the webapp to show each user only the files they personally shared.
 
-### CSV columns
+## Helm Chart (Kubernetes)
 
-Each row represents one sharing permission on one item. A file shared with 3 people produces 3 rows.
+A Helm chart is included at `helm/sharing-audit/`.
 
-| Column | Example |
-|--------|---------|
-| `Source` | `OneDrive` or `SharePoint` |
-| `SiteName` | `Jane Doe` or `Marketing Team / Documents` |
-| `SiteUrl` | `https://contoso-my.sharepoint.com/personal/jdoe` |
-| `ItemPath` | `/Documents/Budget 2026.xlsx` |
-| `ItemType` | `File` or `Folder` |
-| `SharingType` | `Link-Anyone`, `Link-Organization`, `Link-SpecificPeople`, `User`, `Group` |
-| `SharedWith` | `vendor@gmail.com` or `Anyone with the link` |
-| `SharedWithType` | `Internal`, `External`, `Guest`, `Anonymous` |
-| `Role` | `Read`, `Write`, `Owner` |
-| `CreatedDateTime` | `2025-08-14T10:30:00Z` |
-| `OwnerEmail` | `jdoe@contoso.com` |
-| `OwnerDisplayName` | `Jane Doe` |
-
-### Console summary
-
-After the CSV export, the script prints a summary:
-
-```
-====================================
-       SHARING AUDIT SUMMARY
-====================================
-
-Total shared items: 1,247
-
-Breakdown by Sharing Type:
-  User                          834
-  Link-Organization             203
-  Link-SpecificPeople           112
-  Group                          67
-  Link-Anyone                    31
-
-Breakdown by Shared-With Type:
-  Internal                      987
-  External                      198
-  Guest                          43
-  Anonymous                      19
-
-** WARNING: 31 anonymous (Anyone) links found **
-** 241 items shared externally (External + Guest) **
-
-Top 10 Users by Shared Items:
-  jdoe@contoso.com                           142
-  asmith@contoso.com                          98
-  ...
+```bash
+helm install sharing-audit helm/sharing-audit/ \
+  --set secrets.tenantId=YOUR_TENANT_ID \
+  --set secrets.clientId=YOUR_CLIENT_ID \
+  --set secrets.clientSecret=YOUR_SECRET \
+  --set secrets.neo4jPassword=YOUR_NEO4J_PASSWORD
 ```
 
-## Cleanup workflow
+### Using External Secrets (SealedSecrets, ExternalSecrets, etc.)
 
-1. Run the audit with app-only auth
-2. Open the per-user CSVs in Excel
-3. **High priority**: Filter `SharingType` = `Link-Anyone` -- anonymous links accessible without authentication
-4. **Medium priority**: Filter `SharedWithType` = `External` or `Guest` -- items shared outside the organization
-5. **Review**: Filter by specific users or sites to check for over-sharing
-6. Revoke or adjust permissions in SharePoint admin center or per-site
+If you manage secrets externally, create a Secret with these keys and reference it:
 
-## Estimated run times
+| Key | Description |
+|-----|-------------|
+| `tenant-id` | Azure AD tenant ID |
+| `client-id` | App registration client ID |
+| `client-secret` | Client secret |
+| `neo4j-password` | Neo4j password |
+| `neo4j-auth` | Neo4j auth string, format: `neo4j/<password>` |
 
-| Tenant size | Users | Sites | Estimated time |
-|-------------|-------|-------|----------------|
-| Small | < 100 | < 20 | 5-15 minutes |
-| Medium | 100-1000 | 20-100 | 15-45 minutes |
-| Large | 1000+ | 100+ | 1-4 hours |
+```yaml
+secrets:
+  existingSecret: "my-sealed-secret"
+```
 
-## Error handling
+When `existingSecret` is set, the chart skips creating its own Secret and all pods reference the provided one.
 
-- **No OneDrive provisioned**: Warns and skips the user
-- **Inaccessible site**: Warns and skips the site
-- **API rate limiting (429)**: Automatically retried by the Graph SDK
-- **Network timeouts**: Retried 3 times with exponential backoff
-- **Crash resilience**: Partial results are saved to a `.tmp` file every 25 users / 10 sites
+## Security Notes
 
-## Security notes
-
-- The script is **read-only** -- it never modifies or revokes any permissions
-- Store client secrets securely (e.g. Azure Key Vault, environment variables). Do not commit them to source control
-- The app registration only needs read permissions. Do not grant write permissions
-- Consider using a certificate instead of a client secret for production use
-- Set a short expiry on client secrets and rotate them regularly
+- The **collector and reporter are read-only** — they never modify any files or permissions
+- The **webapp can remove sharing permissions** — it uses delegated auth (`Files.ReadWrite.All`) with the logged-in user's token, so it can only modify files the user has access to
+- Store credentials in `.env` (excluded from git via `.gitignore`)
+- Never commit `.env` files — only `.env.example` (with placeholders) is tracked
+- Use `secrets.existingSecret` in Kubernetes to avoid storing secrets in Helm values
+- Use a short-lived client secret and rotate regularly
+- Sessions are stored in-memory (not persisted across restarts) with httpOnly cookies
+- ID tokens are validated against Microsoft's JWKS endpoint with 24-hour cache TTL
