@@ -7,6 +7,7 @@ from shared.neo4j_client import Neo4jClient
 from webapp.auth import SessionStore
 from webapp.routes_auth import router as auth_router
 from webapp import routes_files
+from webapp.routes_unshare import router as unshare_router
 
 
 @asynccontextmanager
@@ -28,6 +29,7 @@ def create_app() -> FastAPI:
 
     app.include_router(auth_router)
     app.include_router(routes_files.router)
+    app.include_router(unshare_router)
 
     @app.get("/api/health")
     def health():
