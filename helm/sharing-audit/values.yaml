@@ -1,0 +1,45 @@
+neo4j:
+  image: neo4j:5-community
+  storage: 10Gi
+  storageClass: ""
+  resources:
+    requests:
+      memory: 1Gi
+      cpu: 500m
+    limits:
+      memory: 2Gi
+
+collector:
+  image: sharing-audit-collector:latest
+  imagePullPolicy: IfNotPresent
+  schedule: "0 2 * * 0"
+  delayMs: 100
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+
+reporter:
+  image: sharing-audit-reporter:latest
+  imagePullPolicy: IfNotPresent
+  schedule: "0 6 * * 0"
+  sensitiveFolders: "ledelse,ledelsen,datarum,løn"
+  tenantDomain: ""
+  resources:
+    requests:
+      memory: 512Mi
+      cpu: 200m
+    limits:
+      memory: 1Gi
+
+reports:
+  storage: 5Gi
+  storageClass: ""
+
+secrets:
+  tenantId: ""
+  clientId: ""
+  clientSecret: ""
+  neo4jPassword: "changeme"

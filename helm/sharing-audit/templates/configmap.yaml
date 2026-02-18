@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-config
+data:
+  delay-ms: {{ .Values.collector.delayMs | quote }}
+  sensitive-folders: {{ .Values.reporter.sensitiveFolders | quote }}
+  tenant-domain: {{ .Values.reporter.tenantDomain | quote }}

@@ -1,0 +1,47 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-reporter
+spec:
+  schedule: {{ .Values.reporter.schedule | quote }}
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: reporter
+              image: {{ .Values.reporter.image }}
+              imagePullPolicy: {{ .Values.reporter.imagePullPolicy }}
+              env:
+                - name: NEO4J_URI
+                  value: bolt://{{ .Release.Name }}-neo4j:7687
+                - name: NEO4J_USER
+                  value: neo4j
+                - name: NEO4J_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Release.Name }}-secrets
+                      key: neo4j-password
+                - name: TENANT_DOMAIN
+                  valueFrom:
+                    configMapKeyRef:
+                      name: {{ .Release.Name }}-config
+                      key: tenant-domain
+                - name: SENSITIVE_FOLDERS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: {{ .Release.Name }}-config
+                      key: sensitive-folders
+                - name: REPORT_OUTPUT_DIR
+                  value: /reports
+              resources:
+                {{- toYaml .Values.reporter.resources | nindent 16 }}
+              volumeMounts:
+                - name: reports
+                  mountPath: /reports
+          volumes:
+            - name: reports
+              persistentVolumeClaim:
+                claimName: {{ .Release.Name }}-reports

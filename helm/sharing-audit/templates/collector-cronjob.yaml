@@ -1,0 +1,48 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-collector
+spec:
+  schedule: {{ .Values.collector.schedule | quote }}
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: collector
+              image: {{ .Values.collector.image }}
+              imagePullPolicy: {{ .Values.collector.imagePullPolicy }}
+              env:
+                - name: TENANT_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Release.Name }}-secrets
+                      key: tenant-id
+                - name: CLIENT_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Release.Name }}-secrets
+                      key: client-id
+                - name: CLIENT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Release.Name }}-secrets
+                      key: client-secret
+                - name: NEO4J_URI
+                  value: bolt://{{ .Release.Name }}-neo4j:7687
+                - name: NEO4J_USER
+                  value: neo4j
+                - name: NEO4J_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Release.Name }}-secrets
+                      key: neo4j-password
+                - name: DELAY_MS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: {{ .Release.Name }}-config
+                      key: delay-ms
+              resources:
+                {{- toYaml .Values.collector.resources | nindent 16 }}

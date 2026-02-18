@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}-neo4j
+  labels:
+    app: {{ .Release.Name }}-neo4j
+spec:
+  serviceName: {{ .Release.Name }}-neo4j
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-neo4j
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-neo4j
+    spec:
+      containers:
+        - name: neo4j
+          image: {{ .Values.neo4j.image }}
+          ports:
+            - containerPort: 7687
+              name: bolt
+            - containerPort: 7474
+              name: http
+          env:
+            - name: NEO4J_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: neo4j-auth
+          resources:
+            {{- toYaml .Values.neo4j.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.neo4j.storageClass }}
+        storageClassName: {{ .Values.neo4j.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.neo4j.storage }}
