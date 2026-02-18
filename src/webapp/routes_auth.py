@@ -36,6 +36,7 @@ async def login(body: LoginRequest, request: Request, response: Response):
         key="session_id",
         value=sid,
         httponly=True,
+        secure=True,
         samesite="lax",
         max_age=8 * 3600,
     )

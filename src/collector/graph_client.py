@@ -14,12 +14,14 @@ class GraphClient:
         self.delay_ms = delay_ms
         self._credential = ClientSecretCredential(tenant_id, client_id, client_secret)
         self._token: str | None = None
+        self._token_expires_at: float = 0
 
     def _get_token(self) -> str:
         """Get or refresh the access token."""
-        if not self._token:
+        if not self._token or time.time() >= self._token_expires_at - 300:
             token = self._credential.get_token("https://graph.microsoft.com/.default")
             self._token = token.token
+            self._token_expires_at = token.expires_on
         return self._token
 
     def _make_request(self, url: str, params: dict | None = None) -> dict:
@@ -36,6 +38,9 @@ class GraphClient:
                 resp.raise_for_status()
                 return resp.json()
             except httpx.HTTPStatusError as e:
+                if e.response.status_code == 401:
+                    self._token = None
+                    continue
                 if attempt < 3 and e.response.status_code >= 500:
                     time.sleep(2 ** attempt)
                     continue

@@ -12,16 +12,21 @@ from jose import jwt
 class SessionStore:
     """In-memory session store. Maps session IDs to user info."""
 
-    def __init__(self):
+    def __init__(self, ttl_seconds: int = 8 * 3600):
         self._sessions: dict[str, dict] = {}
+        self._ttl = ttl_seconds
 
     def create(self, email: str, name: str) -> str:
         sid = str(uuid.uuid4())
-        self._sessions[sid] = {"email": email, "name": name}
+        self._sessions[sid] = {"email": email, "name": name, "created_at": time.time()}
         return sid
 
     def get(self, sid: str) -> Optional[dict]:
-        return self._sessions.get(sid)
+        session = self._sessions.get(sid)
+        if session and time.time() - session.get("created_at", 0) > self._ttl:
+            del self._sessions[sid]
+            return None
+        return session
 
     def delete(self, sid: str):
         self._sessions.pop(sid, None)

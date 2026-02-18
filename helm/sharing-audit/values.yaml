@@ -27,7 +27,7 @@ reporter:
   image: sharing-audit-reporter:latest
   imagePullPolicy: IfNotPresent
   schedule: "0 6 * * 0"
-  tenantDomain: "testaviva.dk"
+  tenantDomain: ""
   webappUrl: ""
   resources:
     requests:

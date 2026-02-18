@@ -4,9 +4,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ThemeProvider, createTheme, CssBaseline } from '@mui/material'
 import { AuthProvider } from './auth/AuthProvider'
 import App from './App'
-import { LicenseInfo } from '@mui/x-license';
+import { LicenseInfo } from '@mui/x-license'
 
-LicenseInfo.setLicenseKey('a5c37da969ea42478aa0493cf2251947Tz0xMjU3NTIsRT0xODA2ODgzMTk5MDAwLFM9cHJvLExNPXN1YnNjcmlwdGlvbixQVj1RMy0yMDI0LEtWPTI=');
+const muiKey = import.meta.env.VITE_MUI_LICENSE_KEY
+if (muiKey) LicenseInfo.setLicenseKey(muiKey)
 
 const queryClient = new QueryClient()
 const theme = createTheme()
