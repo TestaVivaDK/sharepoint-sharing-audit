@@ -50,9 +50,6 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.webapp
-      args:
-        VITE_CLIENT_ID: ${CLIENT_ID}
-        VITE_TENANT_ID: ${TENANT_ID}
     environment:
       TENANT_ID: ${TENANT_ID}
       CLIENT_ID: ${CLIENT_ID}

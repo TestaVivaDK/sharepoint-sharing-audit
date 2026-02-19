@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from shared.config import WebappConfig
 from shared.neo4j_client import Neo4jClient
@@ -38,6 +38,14 @@ def create_app() -> FastAPI:
     @app.get("/api/health")
     def health():
         return {"status": "ok"}
+
+    @app.get("/config.js")
+    def frontend_config():
+        js = (
+            f"window.ENV={{CLIENT_ID:\"{config.auth.client_id}\","
+            f"TENANT_ID:\"{config.auth.tenant_id}\"}};\n"
+        )
+        return Response(content=js, media_type="application/javascript")
 
     # Serve React SPA static files in production
     static_dir = Path(__file__).parent.parent.parent / "frontend" / "dist"
