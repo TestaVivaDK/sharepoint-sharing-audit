@@ -2,7 +2,12 @@
 
 from fastapi import APIRouter, Request, Query, Depends
 from webapp.auth import require_session
-from webapp.queries import get_user_files, get_user_stats, get_last_scan_time, deduplicate_user_files
+from webapp.queries import (
+    get_user_files,
+    get_user_stats,
+    get_last_scan_time,
+    deduplicate_user_files,
+)
 
 router = APIRouter(prefix="/api", tags=["files"])
 
@@ -11,8 +16,12 @@ router = APIRouter(prefix="/api", tags=["files"])
 def list_files(
     request: Request,
     session: dict = Depends(require_session),
-    risk_level: str | None = Query(None, description="Comma-separated: HIGH,MEDIUM,LOW"),
-    source: str | None = Query(None, description="Comma-separated: OneDrive,SharePoint,Teams"),
+    risk_level: str | None = Query(
+        None, description="Comma-separated: HIGH,MEDIUM,LOW"
+    ),
+    source: str | None = Query(
+        None, description="Comma-separated: OneDrive,SharePoint,Teams"
+    ),
     search: str | None = Query(None, description="Search in file path"),
 ):
     neo4j = request.app.state.neo4j

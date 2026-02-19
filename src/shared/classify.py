@@ -6,50 +6,68 @@ import re
 # Sensitive Danish keywords — matched against both folder names and filenames
 SENSITIVE_KEYWORDS = re.compile(
     r"(?i)"
-    r"(l[øo]n"              # løn, lønseddel, lønoplysninger
-    r"|ledelse"             # ledelse, ledelsen
-    r"|direktion"           # direktion, direktionen
-    r"|bestyrelse"          # bestyrelse, bestyrelsesmøde
-    r"|datarum"             # data room
-    r"|personale"           # personale, personalemappe
-    r"|ans[æa]tt"           # ansættelse, ansættelseskontrakt
-    r"|opsigelse"           # opsigelse, opsigelser
-    r"|fratr[æa]d"          # fratrædelse
-    r"|regnskab"            # regnskab, regnskaber
-    r"|budget"              # budget, budgetter
-    r"|[øo]konomi"          # økonomi, ekonomi
-    r"|faktura"             # faktura, fakturaer
-    r"|kontrakt"            # kontrakt, kontrakter
-    r"|fortrolig"           # fortrolig, fortroligt
-    r"|hemmelig"            # hemmelig, hemmeligt
-    r"|persondata"          # persondata
-    r"|cpr"                 # CPR-nummer
-    r"|personfølsom"        # personfølsom, personfølsomme
-    r"|sundhed"             # sundhed, sundhedsoplysninger
-    r"|syge"                # syge, sygefravær, sygedagpenge
-    r"|gdpr"                # GDPR
-    r"|pension"             # pension, pensionsordning
-    r"|ferie"               # ferie, ferieregnskab
-    r"|revision"            # revision (audit)
-    r"|inkasso"             # inkasso (debt collection)
-    r"|gæld"                # gæld (debt)
-    r"|erstatning"          # erstatning (compensation/damages)
-    r"|disciplin[æa]r"      # disciplinær, disciplinærsag
-    r"|advarsel"            # advarsel (warning)
-    r"|klage"               # klage (complaint)
+    r"(l[øo]n"  # løn, lønseddel, lønoplysninger
+    r"|ledelse"  # ledelse, ledelsen
+    r"|direktion"  # direktion, direktionen
+    r"|bestyrelse"  # bestyrelse, bestyrelsesmøde
+    r"|datarum"  # data room
+    r"|personale"  # personale, personalemappe
+    r"|ans[æa]tt"  # ansættelse, ansættelseskontrakt
+    r"|opsigelse"  # opsigelse, opsigelser
+    r"|fratr[æa]d"  # fratrædelse
+    r"|regnskab"  # regnskab, regnskaber
+    r"|budget"  # budget, budgetter
+    r"|[øo]konomi"  # økonomi, ekonomi
+    r"|faktura"  # faktura, fakturaer
+    r"|kontrakt"  # kontrakt, kontrakter
+    r"|fortrolig"  # fortrolig, fortroligt
+    r"|hemmelig"  # hemmelig, hemmeligt
+    r"|persondata"  # persondata
+    r"|cpr"  # CPR-nummer
+    r"|personfølsom"  # personfølsom, personfølsomme
+    r"|sundhed"  # sundhed, sundhedsoplysninger
+    r"|syge"  # syge, sygefravær, sygedagpenge
+    r"|gdpr"  # GDPR
+    r"|pension"  # pension, pensionsordning
+    r"|ferie"  # ferie, ferieregnskab
+    r"|revision"  # revision (audit)
+    r"|inkasso"  # inkasso (debt collection)
+    r"|gæld"  # gæld (debt)
+    r"|erstatning"  # erstatning (compensation/damages)
+    r"|disciplin[æa]r"  # disciplinær, disciplinærsag
+    r"|advarsel"  # advarsel (warning)
+    r"|klage"  # klage (complaint)
     r")"
 )
 
 # High-risk file extensions (contain structured/sensitive data)
 SENSITIVE_EXTENSIONS = {
-    ".xlsx", ".xls", ".csv", ".pdf", ".docx", ".doc",
-    ".pptx", ".ppt", ".accdb", ".mdb",
+    ".xlsx",
+    ".xls",
+    ".csv",
+    ".pdf",
+    ".docx",
+    ".doc",
+    ".pptx",
+    ".ppt",
+    ".accdb",
+    ".mdb",
 }
 
 # Low-risk file extensions (media/images rarely contain sensitive data)
 LOW_RISK_EXTENSIONS = {
-    ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg", ".ico",
-    ".mp4", ".mov", ".avi", ".mp3", ".wav",
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".gif",
+    ".bmp",
+    ".svg",
+    ".ico",
+    ".mp4",
+    ".mov",
+    ".avi",
+    ".mp3",
+    ".wav",
 }
 
 
@@ -89,9 +107,15 @@ def get_shared_with_info(permission: dict, tenant_domain: str) -> dict:
     if link:
         scope = link.get("scope", "")
         if scope == "anonymous":
-            return {"shared_with": "Anyone with the link", "shared_with_type": "Anonymous"}
+            return {
+                "shared_with": "Anyone with the link",
+                "shared_with_type": "Anonymous",
+            }
         if scope == "organization":
-            return {"shared_with": "All organization members", "shared_with_type": "Internal"}
+            return {
+                "shared_with": "All organization members",
+                "shared_with_type": "Internal",
+            }
 
         identities_v2 = permission.get("grantedToIdentitiesV2", [])
         if identities_v2:
@@ -122,12 +146,18 @@ def get_shared_with_info(permission: dict, tenant_domain: str) -> dict:
                 shared_with_type = "Internal"
             return {"shared_with": shared_with, "shared_with_type": shared_with_type}
 
-        return {"shared_with": "Specific people (details unavailable)", "shared_with_type": "Internal"}
+        return {
+            "shared_with": "Specific people (details unavailable)",
+            "shared_with_type": "Internal",
+        }
 
     granted = permission.get("grantedToV2", {})
     group = granted.get("group")
     if group:
-        return {"shared_with": group.get("displayName", "Unknown Group"), "shared_with_type": "Internal"}
+        return {
+            "shared_with": group.get("displayName", "Unknown Group"),
+            "shared_with_type": "Internal",
+        }
 
     user = granted.get("user") or permission.get("grantedTo", {}).get("user")
     if user:
@@ -153,7 +183,10 @@ def is_sensitive_path(item_path: str) -> bool:
 
 def get_risk_level(sharing_type: str, shared_with_type: str, item_path: str) -> str:
     """Assign HIGH/MEDIUM/LOW risk based on sharing type, audience, and file path."""
-    if shared_with_type in ("Anonymous", "External", "Guest") or sharing_type == "Link-Anyone":
+    if (
+        shared_with_type in ("Anonymous", "External", "Guest")
+        or sharing_type == "Link-Anyone"
+    ):
         return "HIGH"
     if is_sensitive_path(item_path):
         return "HIGH"
@@ -251,7 +284,13 @@ def get_permission_role(permission: dict) -> str:
 
 def is_teams_chat_file(item_path: str) -> bool:
     """Check if an item path belongs to the Teams chat files folder."""
-    return bool(re.search(r"Microsoft Teams[ -]chatfiler|Microsoft Teams Chat Files", item_path, re.IGNORECASE))
+    return bool(
+        re.search(
+            r"Microsoft Teams[ -]chatfiler|Microsoft Teams Chat Files",
+            item_path,
+            re.IGNORECASE,
+        )
+    )
 
 
 def get_granted_by(permission: dict) -> str:

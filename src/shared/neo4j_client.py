@@ -61,12 +61,20 @@ class Neo4jClient:
             {"siteId": site_id, "name": name, "url": web_url, "source": source},
         )
 
-    def merge_file(self, drive_id: str, item_id: str, path: str, web_url: str, file_type: str):
+    def merge_file(
+        self, drive_id: str, item_id: str, path: str, web_url: str, file_type: str
+    ):
         """Upsert a File node."""
         self.execute(
             """MERGE (f:File {driveId: $driveId, itemId: $itemId})
                SET f.path = $path, f.webUrl = $url, f.type = $type""",
-            {"driveId": drive_id, "itemId": item_id, "path": path, "url": web_url, "type": file_type},
+            {
+                "driveId": drive_id,
+                "itemId": item_id,
+                "path": path,
+                "url": web_url,
+                "type": file_type,
+            },
         )
 
     def merge_shared_with(
@@ -179,12 +187,21 @@ class Neo4jClient:
             MERGE (r)-[:FOUND]->(f)
             """,
             {
-                "driveId": drive_id, "itemId": item_id,
-                "path": item_path, "webUrl": web_url, "fileType": file_type,
-                "userEmail": user_email, "userName": user_display_name, "userSource": user_source,
-                "sharingType": sharing_type, "sharedWithType": shared_with_type,
-                "role": role, "riskLevel": risk_level,
-                "created": created_date_time, "runId": run_id,
-                "grantedBy": granted_by, "siteId": site_id,
+                "driveId": drive_id,
+                "itemId": item_id,
+                "path": item_path,
+                "webUrl": web_url,
+                "fileType": file_type,
+                "userEmail": user_email,
+                "userName": user_display_name,
+                "userSource": user_source,
+                "sharingType": sharing_type,
+                "sharedWithType": shared_with_type,
+                "role": role,
+                "riskLevel": risk_level,
+                "created": created_date_time,
+                "runId": run_id,
+                "grantedBy": granted_by,
+                "siteId": site_id,
             },
         )

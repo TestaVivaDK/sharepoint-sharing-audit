@@ -13,9 +13,21 @@ TEMPLATE_DIR = Path(__file__).parent / "templates"
 RISK_ORDER = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
 
 
-def generate_pdf(records: list[dict], output_path: str, title: str = "Sharing Audit Report", user_label: str = "", webapp_url: str = "") -> str:
+def generate_pdf(
+    records: list[dict],
+    output_path: str,
+    title: str = "Sharing Audit Report",
+    user_label: str = "",
+    webapp_url: str = "",
+) -> str:
     """Generate a styled PDF report. Falls back to HTML if WeasyPrint fails. Returns output path."""
-    sorted_records = sorted(records, key=lambda r: (-r.get("risk_score", 0), RISK_ORDER.get(r.get("risk_level", "LOW"), 2)))
+    sorted_records = sorted(
+        records,
+        key=lambda r: (
+            -r.get("risk_score", 0),
+            RISK_ORDER.get(r.get("risk_level", "LOW"), 2),
+        ),
+    )
 
     high_count = sum(1 for r in records if r.get("risk_level") == "HIGH")
     medium_count = sum(1 for r in records if r.get("risk_level") == "MEDIUM")

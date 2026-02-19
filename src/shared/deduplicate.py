@@ -27,7 +27,10 @@ def deduplicate_records(
         if include_ids:
             key = f"{r.get('drive_id')}:{r.get('item_id')}"
         else:
-            key = r.get("item_web_url") or f"{r.get('source', '')}:{r.get('item_path', '')}"
+            key = (
+                r.get("item_web_url")
+                or f"{r.get('source', '')}:{r.get('item_path', '')}"
+            )
 
         if key not in groups:
             groups[key] = {
@@ -47,7 +50,9 @@ def deduplicate_records(
         g = groups[key]
 
         # Keep highest risk
-        if RISK_ORDER.get(r.get("risk_level", "LOW"), 2) < RISK_ORDER.get(g["risk_level"], 2):
+        if RISK_ORDER.get(r.get("risk_level", "LOW"), 2) < RISK_ORDER.get(
+            g["risk_level"], 2
+        ):
             g["risk_level"] = r["risk_level"]
 
         # Collect unique sharing info
@@ -65,10 +70,12 @@ def deduplicate_records(
     for g in groups.values():
         worst_swt = (
             min(g["shared_with_types"], key=lambda t: SWT_PRIORITY.get(t, 5))
-            if g["shared_with_types"] else "Unknown"
+            if g["shared_with_types"]
+            else "Unknown"
         )
         worst_role = (
-            "Write" if "Write" in g["roles"] or "Owner" in g["roles"]
+            "Write"
+            if "Write" in g["roles"] or "Owner" in g["roles"]
             else ("Read" if "Read" in g["roles"] else "Unknown")
         )
 

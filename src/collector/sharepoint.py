@@ -49,12 +49,21 @@ def collect_sharepoint_sites(
             owner = drive.get("owner", {})
             if owner.get("user", {}).get("email"):
                 owner_email = owner["user"]["email"]
-                neo4j.merge_user(owner_email, owner["user"].get("displayName", ""), "internal")
+                neo4j.merge_user(
+                    owner_email, owner["user"].get("displayName", ""), "internal"
+                )
                 neo4j.merge_owns(owner_email, site_id)
 
             count = _walk_drive_items(
-                graph, neo4j, drive_id, "root", "",
-                site_id, owner_email, tenant_domain, run_id,
+                graph,
+                neo4j,
+                drive_id,
+                "root",
+                "",
+                site_id,
+                owner_email,
+                tenant_domain,
+                run_id,
             )
             total += count
 

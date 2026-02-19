@@ -59,6 +59,8 @@ async def unshare(body: UnshareRequest, session: dict = Depends(require_session)
 
     logger.info(f"Unshare request from {session['email']}: {len(body.file_ids)} files")
     result = await bulk_unshare(body.graph_token, body.file_ids)
-    logger.info(f"Unshare result: {len(result['succeeded'])} succeeded, {len(result['failed'])} failed")
+    logger.info(
+        f"Unshare result: {len(result['succeeded'])} succeeded, {len(result['failed'])} failed"
+    )
 
     return result

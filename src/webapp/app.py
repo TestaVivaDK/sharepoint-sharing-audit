@@ -27,7 +27,9 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     config = WebappConfig()
 
-    app = FastAPI(title="Sharing Audit Dashboard", docs_url="/api/docs", lifespan=lifespan)
+    app = FastAPI(
+        title="Sharing Audit Dashboard", docs_url="/api/docs", lifespan=lifespan
+    )
     app.state.config = config
     app.state.sessions = SessionStore()
 
@@ -42,24 +44,31 @@ def create_app() -> FastAPI:
     @app.get("/config.js")
     def frontend_config():
         js = (
-            f"window.ENV={{CLIENT_ID:\"{config.auth.client_id}\","
-            f"TENANT_ID:\"{config.auth.tenant_id}\"}};\n"
+            f'window.ENV={{CLIENT_ID:"{config.auth.client_id}",'
+            f'TENANT_ID:"{config.auth.tenant_id}"}};\n'
         )
         return Response(content=js, media_type="application/javascript")
 
     # Serve React SPA static files in production
     static_dir = Path(__file__).parent.parent.parent / "frontend" / "dist"
     if static_dir.exists():
-        app.mount("/assets", StaticFiles(directory=str(static_dir / "assets")), name="assets")
+        app.mount(
+            "/assets", StaticFiles(directory=str(static_dir / "assets")), name="assets"
+        )
 
         @app.get("/{path:path}")
         def spa_fallback(path: str):
             # Never intercept API routes — return 404 so missing endpoints are visible
             if path.startswith("api/"):
                 from fastapi import HTTPException
+
                 raise HTTPException(status_code=404, detail="API endpoint not found")
             file_path = (static_dir / path).resolve()
-            if file_path.is_relative_to(static_dir) and file_path.exists() and file_path.is_file():
+            if (
+                file_path.is_relative_to(static_dir)
+                and file_path.exists()
+                and file_path.is_file()
+            ):
                 return FileResponse(str(file_path))
             return FileResponse(str(static_dir / "index.html"))
 

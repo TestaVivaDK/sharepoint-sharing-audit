@@ -50,7 +50,9 @@ def main():
 
         for i, user in enumerate(users, 1):
             upn = user.get("userPrincipalName", "?")
-            logger.info(f"[{i}/{len(users)}] OneDrive: {user.get('displayName', '?')} ({upn})")
+            logger.info(
+                f"[{i}/{len(users)}] OneDrive: {user.get('displayName', '?')} ({upn})"
+            )
             count = collect_onedrive_user(graph, neo4j, user, run_id, tenant_domain)
             total += count
 

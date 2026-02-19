@@ -19,7 +19,8 @@ def get_last_scan_time(client: Neo4jClient) -> tuple[str | None, str | None]:
 
 def get_user_files(client: Neo4jClient, email: str, run_id: str) -> list[dict]:
     """Get shared files where the current user granted the sharing permission."""
-    result = client.execute("""
+    result = client.execute(
+        """
         MATCH (f:File)-[s:SHARED_WITH {lastSeenRunId: $runId, grantedBy: $email}]->(shared_user:User)
         MATCH (site:Site)-[:CONTAINS]->(f)
         RETURN
@@ -37,7 +38,9 @@ def get_user_files(client: Neo4jClient, email: str, run_id: str) -> list[dict]:
         ORDER BY
             CASE s.riskLevel WHEN 'HIGH' THEN 0 WHEN 'MEDIUM' THEN 1 ELSE 2 END,
             f.path
-    """, {"email": email, "runId": run_id})
+    """,
+        {"email": email, "runId": run_id},
+    )
     return result
 
 

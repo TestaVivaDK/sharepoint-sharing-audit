@@ -16,7 +16,8 @@ def get_latest_completed_run(client: Neo4jClient) -> str | None:
 
 def get_sharing_data(client: Neo4jClient, run_id: str) -> list[dict]:
     """Get all sharing records for a given scan run, enriched with owner/site info."""
-    result = client.execute("""
+    result = client.execute(
+        """
         MATCH (f:File)-[s:SHARED_WITH {lastSeenRunId: $runId}]->(u:User)
         MATCH (site:Site)-[:CONTAINS]->(f)
         OPTIONAL MATCH (owner:User)-[:OWNS]->(site)
@@ -39,5 +40,7 @@ def get_sharing_data(client: Neo4jClient, run_id: str) -> list[dict]:
         ORDER BY
             CASE s.riskLevel WHEN 'HIGH' THEN 0 WHEN 'MEDIUM' THEN 1 ELSE 2 END,
             owner.email, f.path
-    """, {"runId": run_id})
+    """,
+        {"runId": run_id},
+    )
     return result

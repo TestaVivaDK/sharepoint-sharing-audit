@@ -5,8 +5,11 @@ import logging
 from collector.graph_client import GraphClient
 from shared.neo4j_client import Neo4jClient
 from shared.classify import (
-    get_sharing_type, get_shared_with_info, get_risk_level,
-    get_permission_role, get_granted_by,
+    get_sharing_type,
+    get_shared_with_info,
+    get_risk_level,
+    get_permission_role,
+    get_granted_by,
 )
 
 logger = logging.getLogger(__name__)
@@ -32,7 +35,9 @@ def _walk_drive_items(
         return 0
 
     for item in children:
-        item_path = f"{parent_path}/{item['name']}" if parent_path else f"/{item['name']}"
+        item_path = (
+            f"{parent_path}/{item['name']}" if parent_path else f"/{item['name']}"
+        )
         item_type = "Folder" if item.get("folder") else "File"
         web_url = item.get("webUrl", "")
 
@@ -47,7 +52,9 @@ def _walk_drive_items(
             shared_info = get_shared_with_info(perm, tenant_domain)
             role = get_permission_role(perm)
             granted_by = get_granted_by(perm) or owner_email
-            risk = get_risk_level(sharing_type, shared_info["shared_with_type"], item_path)
+            risk = get_risk_level(
+                sharing_type, shared_info["shared_with_type"], item_path
+            )
 
             # Skip owner's own "owner" permission
             if role == "Owner" and shared_info["shared_with"] == owner_email:
@@ -62,14 +69,18 @@ def _walk_drive_items(
 
             neo4j.merge_permission(
                 site_id=site_id,
-                drive_id=drive_id, item_id=item["id"],
-                item_path=item_path, web_url=web_url, file_type=item_type,
+                drive_id=drive_id,
+                item_id=item["id"],
+                item_path=item_path,
+                web_url=web_url,
+                file_type=item_type,
                 user_email=shared_email,
                 user_display_name=shared_info["shared_with"],
                 user_source=shared_info["shared_with_type"],
                 sharing_type=sharing_type,
                 shared_with_type=shared_info["shared_with_type"],
-                role=role, risk_level=risk,
+                role=role,
+                risk_level=risk,
                 created_date_time=perm.get("createdDateTime", ""),
                 run_id=run_id,
                 granted_by=granted_by,
@@ -79,8 +90,15 @@ def _walk_drive_items(
         # Recurse into folders
         if item.get("folder") and item["folder"].get("childCount", 0) > 0:
             count += _walk_drive_items(
-                graph, neo4j, drive_id, item["id"], item_path,
-                site_id, owner_email, tenant_domain, run_id,
+                graph,
+                neo4j,
+                drive_id,
+                item["id"],
+                item_path,
+                site_id,
+                owner_email,
+                tenant_domain,
+                run_id,
             )
 
         graph.throttle()
@@ -113,8 +131,15 @@ def collect_onedrive_user(
     neo4j.merge_owns(upn, site_id)
 
     count = _walk_drive_items(
-        graph, neo4j, drive_id, "root", "",
-        site_id, upn, tenant_domain, run_id,
+        graph,
+        neo4j,
+        drive_id,
+        "root",
+        "",
+        site_id,
+        upn,
+        tenant_domain,
+        run_id,
     )
 
     logger.info(f"OneDrive {display_name} ({upn}): {count} shared items")

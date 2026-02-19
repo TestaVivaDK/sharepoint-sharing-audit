@@ -22,15 +22,16 @@ async def remove_all_permissions(
 
     # Filter out inherited permissions
     direct = [
-        p for p in permissions
-        if not (p.get("inheritedFrom", {}).get("driveId") or p.get("inheritedFrom", {}).get("path"))
+        p
+        for p in permissions
+        if not (
+            p.get("inheritedFrom", {}).get("driveId")
+            or p.get("inheritedFrom", {}).get("path")
+        )
     ]
 
     # Also skip "owner" role — can't remove the owner
-    removable = [
-        p for p in direct
-        if "owner" not in p.get("roles", [])
-    ]
+    removable = [p for p in direct if "owner" not in p.get("roles", [])]
 
     succeeded = []
     failed = []
@@ -67,10 +68,17 @@ async def bulk_unshare(
                 drive_id, item_id = file_id.split(":", 1)
                 result = await remove_all_permissions(client, drive_id, item_id)
                 if result["failed"]:
-                    failed.append({"id": file_id, "error": f"{len(result['failed'])} permissions failed"})
+                    failed.append(
+                        {
+                            "id": file_id,
+                            "error": f"{len(result['failed'])} permissions failed",
+                        }
+                    )
                 else:
                     succeeded.append(file_id)
-                    logger.info(f"Unshared {file_id}: {len(result['succeeded'])} permissions removed")
+                    logger.info(
+                        f"Unshared {file_id}: {len(result['succeeded'])} permissions removed"
+                    )
             except Exception as e:
                 failed.append({"id": file_id, "error": str(e)})
                 logger.warning(f"Unshare failed for {file_id}: {e}")

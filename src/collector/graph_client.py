@@ -10,7 +10,9 @@ logger = logging.getLogger(__name__)
 
 
 class GraphClient:
-    def __init__(self, tenant_id: str, client_id: str, client_secret: str, delay_ms: int = 100):
+    def __init__(
+        self, tenant_id: str, client_id: str, client_secret: str, delay_ms: int = 100
+    ):
         self.delay_ms = delay_ms
         self._credential = ClientSecretCredential(tenant_id, client_id, client_secret)
         self._token: str | None = None
@@ -42,7 +44,7 @@ class GraphClient:
                     self._token = None
                     continue
                 if attempt < 3 and e.response.status_code >= 500:
-                    time.sleep(2 ** attempt)
+                    time.sleep(2**attempt)
                     continue
                 raise
         return {}
@@ -75,7 +77,9 @@ class GraphClient:
             users = []
             for upn in upns:
                 try:
-                    data = self._make_request(f"https://graph.microsoft.com/v1.0/users/{upn}")
+                    data = self._make_request(
+                        f"https://graph.microsoft.com/v1.0/users/{upn}"
+                    )
                     users.append(data)
                 except Exception as e:
                     logger.warning(f"Could not find user {upn}: {e}")
@@ -83,14 +87,23 @@ class GraphClient:
 
         all_users = self._make_paged_request(
             "https://graph.microsoft.com/v1.0/users",
-            {"$filter": "accountEnabled eq true", "$select": "id,displayName,userPrincipalName,accountEnabled,assignedLicenses"},
+            {
+                "$filter": "accountEnabled eq true",
+                "$select": "id,displayName,userPrincipalName,accountEnabled,assignedLicenses",
+            },
         )
-        return [u for u in all_users if u.get("accountEnabled") and u.get("assignedLicenses")]
+        return [
+            u
+            for u in all_users
+            if u.get("accountEnabled") and u.get("assignedLicenses")
+        ]
 
     def get_user_drive(self, user_id: str) -> dict | None:
         """Get a user's default OneDrive drive."""
         try:
-            return self._make_request(f"https://graph.microsoft.com/v1.0/users/{user_id}/drive")
+            return self._make_request(
+                f"https://graph.microsoft.com/v1.0/users/{user_id}/drive"
+            )
         except Exception as e:
             logger.warning(f"No OneDrive for user {user_id}: {e}")
             return None
@@ -122,8 +135,12 @@ class GraphClient:
         )
         permissions = data.get("value", [])
         return [
-            p for p in permissions
-            if not (p.get("inheritedFrom", {}).get("driveId") or p.get("inheritedFrom", {}).get("path"))
+            p
+            for p in permissions
+            if not (
+                p.get("inheritedFrom", {}).get("driveId")
+                or p.get("inheritedFrom", {}).get("path")
+            )
         ]
 
     def throttle(self):
