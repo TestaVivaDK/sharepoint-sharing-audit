@@ -20,7 +20,7 @@ class TestFilesEndpoint:
         mock_neo4j = MagicMock()
         mock_neo4j.execute.side_effect = [
             # get_last_scan_time
-            [{"runId": "run-1", "timestamp": "2026-02-18T12:00:00Z"}],
+            [{"runId": "run-1", "timestamp": "2026-02-18T12:00:00Z", "status": "completed"}],
             # get_user_files
             [
                 {
@@ -52,7 +52,7 @@ class TestStatsEndpoint:
         mock_neo4j = MagicMock()
         mock_neo4j.execute.side_effect = [
             # get_last_scan_time
-            [{"runId": "run-1", "timestamp": "2026-02-18T12:00:00Z"}],
+            [{"runId": "run-1", "timestamp": "2026-02-18T12:00:00Z", "status": "completed"}],
             # get_user_files (called by get_user_stats)
             [
                 {"drive_id": "d1", "item_id": "i1", "risk_level": "HIGH",

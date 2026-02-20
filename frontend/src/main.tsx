@@ -6,7 +6,7 @@ import { AuthProvider } from './auth/AuthProvider'
 import App from './App'
 import { LicenseInfo } from '@mui/x-license'
 
-const muiKey = import.meta.env.VITE_MUI_LICENSE_KEY
+const muiKey = window.ENV?.MUI_LICENSE_KEY
 if (muiKey) LicenseInfo.setLicenseKey(muiKey)
 
 const queryClient = new QueryClient()

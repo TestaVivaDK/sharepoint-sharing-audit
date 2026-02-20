@@ -25,9 +25,9 @@ def list_files(
     search: str | None = Query(None, description="Search in file path"),
 ):
     neo4j = request.app.state.neo4j
-    run_id, last_scan = get_last_scan_time(neo4j)
+    run_id, last_scan, scan_status = get_last_scan_time(neo4j)
     if not run_id:
-        return {"files": [], "last_scan": None}
+        return {"files": [], "last_scan": None, "scan_status": None}
 
     raw = get_user_files(neo4j, session["email"], run_id)
     files = deduplicate_user_files(raw)
@@ -43,7 +43,7 @@ def list_files(
         q = search.lower()
         files = [f for f in files if q in f["item_path"].lower()]
 
-    return {"files": files, "last_scan": last_scan}
+    return {"files": files, "last_scan": last_scan, "scan_status": scan_status}
 
 
 @router.get("/stats")
@@ -52,10 +52,18 @@ def stats(
     session: dict = Depends(require_session),
 ):
     neo4j = request.app.state.neo4j
-    run_id, last_scan = get_last_scan_time(neo4j)
+    run_id, last_scan, scan_status = get_last_scan_time(neo4j)
     if not run_id:
-        return {"total": 0, "high": 0, "medium": 0, "low": 0, "last_scan": None}
+        return {
+            "total": 0,
+            "high": 0,
+            "medium": 0,
+            "low": 0,
+            "last_scan": None,
+            "scan_status": None,
+        }
 
     counts = get_user_stats(neo4j, session["email"], run_id)
     counts["last_scan"] = last_scan
+    counts["scan_status"] = scan_status
     return counts

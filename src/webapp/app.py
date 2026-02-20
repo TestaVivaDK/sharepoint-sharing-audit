@@ -45,7 +45,8 @@ def create_app() -> FastAPI:
     def frontend_config():
         js = (
             f'window.ENV={{CLIENT_ID:"{config.auth.client_id}",'
-            f'TENANT_ID:"{config.auth.tenant_id}"}};\n'
+            f'TENANT_ID:"{config.auth.tenant_id}",'
+            f'MUI_LICENSE_KEY:"{config.mui_license_key}"}};\n'
         )
         return Response(content=js, media_type="application/javascript")
 

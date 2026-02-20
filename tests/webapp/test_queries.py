@@ -63,14 +63,15 @@ class TestGetLastScanTime:
     def test_returns_timestamp(self):
         mock_neo4j = MagicMock()
         mock_neo4j.execute.return_value = [
-            {"runId": "run-1", "timestamp": "2026-02-18T12:00:00Z"}
+            {"runId": "run-1", "timestamp": "2026-02-18T12:00:00Z", "status": "completed"}
         ]
-        run_id, ts = get_last_scan_time(mock_neo4j)
+        run_id, ts, status = get_last_scan_time(mock_neo4j)
         assert run_id == "run-1"
         assert ts == "2026-02-18T12:00:00Z"
+        assert status == "completed"
 
     def test_no_runs_returns_none(self):
         mock_neo4j = MagicMock()
         mock_neo4j.execute.return_value = []
         result = get_last_scan_time(mock_neo4j)
-        assert result == (None, None)
+        assert result == (None, None, None)

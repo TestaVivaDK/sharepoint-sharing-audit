@@ -16,6 +16,7 @@ export interface SharedFile {
 export interface FilesResponse {
   files: SharedFile[]
   last_scan: string | null
+  scan_status: 'completed' | 'running' | null
 }
 
 export interface StatsResponse {
@@ -24,6 +25,7 @@ export interface StatsResponse {
   medium: number
   low: number
   last_scan: string | null
+  scan_status: 'completed' | 'running' | null
 }
 
 export interface UnshareResponse {

@@ -4,17 +4,21 @@ from shared.neo4j_client import Neo4jClient
 from shared.deduplicate import deduplicate_records
 
 
-def get_last_scan_time(client: Neo4jClient) -> tuple[str | None, str | None]:
-    """Get the latest completed scan run ID and timestamp."""
+def get_last_scan_time(
+    client: Neo4jClient,
+) -> tuple[str | None, str | None, str | None]:
+    """Get the latest scan run. Prefers completed, falls back to running."""
     result = client.execute("""
-        MATCH (r:ScanRun {status: 'completed'})
-        RETURN r.runId AS runId, r.timestamp AS timestamp
-        ORDER BY r.timestamp DESC
+        MATCH (r:ScanRun) WHERE r.status IN ['completed', 'running']
+        RETURN r.runId AS runId, r.timestamp AS timestamp, r.status AS status
+        ORDER BY
+            CASE r.status WHEN 'completed' THEN 0 ELSE 1 END,
+            r.timestamp DESC
         LIMIT 1
     """)
     if not result:
-        return None, None
-    return result[0]["runId"], result[0]["timestamp"]
+        return None, None, None
+    return result[0]["runId"], result[0]["timestamp"], result[0]["status"]
 
 
 def get_user_files(client: Neo4jClient, email: str, run_id: str) -> list[dict]:
