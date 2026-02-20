@@ -58,9 +58,41 @@ export function useUnshare() {
         }),
       })
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['files'] })
-      queryClient.invalidateQueries({ queryKey: ['stats'] })
+    onSuccess: (data) => {
+      const removed = new Set(data.succeeded)
+      if (removed.size === 0) return
+
+      // Collect risk levels of removed files before evicting them
+      const riskCounts = { HIGH: 0, MEDIUM: 0, LOW: 0 }
+      const allCached = queryClient.getQueriesData<FilesResponse>({ queryKey: ['files'] })
+      const seen = new Set<string>()
+      for (const [, cached] of allCached) {
+        if (!cached) continue
+        for (const f of cached.files) {
+          if (removed.has(f.id) && !seen.has(f.id)) {
+            seen.add(f.id)
+            riskCounts[f.risk_level]++
+          }
+        }
+      }
+
+      // Remove unshared files from all cached file lists
+      queryClient.setQueriesData<FilesResponse>({ queryKey: ['files'] }, (old) => {
+        if (!old) return old
+        return { ...old, files: old.files.filter((f) => !removed.has(f.id)) }
+      })
+
+      // Decrement stats counts
+      queryClient.setQueriesData<StatsResponse>({ queryKey: ['stats'] }, (old) => {
+        if (!old) return old
+        return {
+          ...old,
+          total: Math.max(0, old.total - removed.size),
+          high: Math.max(0, old.high - riskCounts.HIGH),
+          medium: Math.max(0, old.medium - riskCounts.MEDIUM),
+          low: Math.max(0, old.low - riskCounts.LOW),
+        }
+      })
     },
   })
 }
