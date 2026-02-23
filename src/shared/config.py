@@ -67,5 +67,5 @@ class WebappConfig:
         default_factory=lambda: os.environ.get("TENANT_DOMAIN", "")
     )
     mui_license_key: str = field(
-        default_factory=lambda: os.environ.get("MUI_LICENSE_KEY", "")
+        default_factory=lambda: os.environ.get("MUI_LICENSE_KEY", "").strip()
     )
