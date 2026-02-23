@@ -29,7 +29,7 @@ def list_files(
     if not run_id:
         return {"files": [], "last_scan": None, "scan_status": None}
 
-    raw = get_user_files(neo4j, session["email"], run_id)
+    raw = get_user_files(neo4j, session["email"])
     files = deduplicate_user_files(raw)
 
     # Apply filters
@@ -63,7 +63,7 @@ def stats(
             "scan_status": None,
         }
 
-    counts = get_user_stats(neo4j, session["email"], run_id)
+    counts = get_user_stats(neo4j, session["email"])
     counts["last_scan"] = last_scan
     counts["scan_status"] = scan_status
     return counts

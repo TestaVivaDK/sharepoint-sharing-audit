@@ -21,11 +21,12 @@ def get_last_scan_time(
     return result[0]["runId"], result[0]["timestamp"], result[0]["status"]
 
 
-def get_user_files(client: Neo4jClient, email: str, run_id: str) -> list[dict]:
+def get_user_files(client: Neo4jClient, email: str) -> list[dict]:
     """Get shared files where the current user granted the sharing permission."""
     result = client.execute(
         """
-        MATCH (f:File)-[s:SHARED_WITH {lastSeenRunId: $runId, grantedBy: $email}]->(shared_user:User)
+        MATCH (f:File)-[s:SHARED_WITH {grantedBy: $email}]->(shared_user:User)
+        WHERE f.deletedAt IS NULL
         MATCH (site:Site)-[:CONTAINS]->(f)
         RETURN
             f.driveId AS drive_id,
@@ -43,7 +44,7 @@ def get_user_files(client: Neo4jClient, email: str, run_id: str) -> list[dict]:
             CASE s.riskLevel WHEN 'HIGH' THEN 0 WHEN 'MEDIUM' THEN 1 ELSE 2 END,
             f.path
     """,
-        {"email": email, "runId": run_id},
+        {"email": email},
     )
     return result
 
@@ -53,9 +54,9 @@ def deduplicate_user_files(records: list[dict]) -> list[dict]:
     return deduplicate_records(records, include_ids=True)
 
 
-def get_user_stats(client: Neo4jClient, email: str, run_id: str) -> dict:
+def get_user_stats(client: Neo4jClient, email: str) -> dict:
     """Get summary counts for a user's shared files."""
-    records = get_user_files(client, email, run_id)
+    records = get_user_files(client, email)
     deduped = deduplicate_user_files(records)
     return {
         "total": len(deduped),

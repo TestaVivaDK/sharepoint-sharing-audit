@@ -21,7 +21,7 @@ class TestGetUserFiles:
                 "role": "Read",
             }
         ]
-        result = get_user_files(mock_neo4j, "user@test.com", "run-1")
+        result = get_user_files(mock_neo4j, "user@test.com")
         assert len(result) == 1
         assert result[0]["item_path"] == "/doc.xlsx"
         # Verify the query includes the user email parameter
@@ -115,7 +115,7 @@ class TestGetUserStats:
                 "role": "Read",
             },
         ]
-        stats = get_user_stats(mock_neo4j, "user@test.com", "run-1")
+        stats = get_user_stats(mock_neo4j, "user@test.com")
         assert stats["total"] == 6
         assert stats["high"] == 2
         assert stats["medium"] == 1
