@@ -47,6 +47,12 @@ spec:
                 configMapKeyRef:
                   name: {{ .Release.Name }}-config
                   key: tenant-domain
+            - name: MUI_LICENSE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "sharing-audit.secretName" . }}
+                  key: {{ .Values.webapp.muiLicenseSecretKey | default "MUI_LICENSE_KEY" }}
+                  optional: true
           livenessProbe:
             httpGet:
               path: /api/health

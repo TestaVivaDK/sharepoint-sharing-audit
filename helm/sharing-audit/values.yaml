@@ -41,6 +41,9 @@ webapp:
   image: sharing-audit-webapp:latest
   imagePullPolicy: IfNotPresent
   replicas: 1
+  muiLicenseKey: ""
+  # -- Secret key name for MUI license (in the existing secret)
+  muiLicenseSecretKey: "MUI_LICENSE_KEY"
   resources:
     requests:
       memory: 256Mi
