@@ -30,6 +30,15 @@ class CollectorConfig:
     delay_ms: int = field(
         default_factory=lambda: int(os.environ.get("DELAY_MS", "100"))
     )
+    force_full_scan: bool = field(
+        default_factory=lambda: os.environ.get("FORCE_FULL_SCAN", "").lower()
+        in ("1", "true", "yes")
+    )
+    full_scan_interval_days: int = field(
+        default_factory=lambda: int(
+            os.environ.get("FULL_SCAN_INTERVAL_DAYS", "7")
+        )
+    )
 
 
 @dataclass(frozen=True)
