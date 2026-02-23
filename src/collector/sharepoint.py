@@ -5,6 +5,7 @@ import logging
 from collector.graph_client import GraphClient
 from shared.neo4j_client import Neo4jClient
 from collector.onedrive import _walk_drive_items
+from collector.delta import delta_scan_drive
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +15,7 @@ def collect_sharepoint_sites(
     neo4j: Neo4jClient,
     run_id: str,
     tenant_domain: str,
+    is_full: bool = True,
 ) -> int:
     """Collect all sharing permissions across SharePoint sites. Returns total item count."""
     sites = graph.get_all_sites()
@@ -54,17 +56,59 @@ def collect_sharepoint_sites(
                 )
                 neo4j.merge_owns(owner_email, site_id)
 
-            count = _walk_drive_items(
-                graph,
-                neo4j,
-                drive_id,
-                "root",
-                "",
-                site_id,
-                owner_email,
-                tenant_domain,
-                run_id,
-            )
+            if is_full:
+                count = _walk_drive_items(
+                    graph,
+                    neo4j,
+                    drive_id,
+                    "root",
+                    "",
+                    site_id,
+                    owner_email,
+                    tenant_domain,
+                    run_id,
+                )
+                try:
+                    link = graph.seed_delta_link(drive_id)
+                    neo4j.save_delta_link(drive_id, link)
+                except Exception as e:
+                    logger.warning(
+                        f"Could not seed delta link for drive {drive_id}: {e}"
+                    )
+            else:
+                delta_link = neo4j.get_delta_link(drive_id)
+                if delta_link:
+                    count = delta_scan_drive(
+                        graph,
+                        neo4j,
+                        drive_id,
+                        delta_link,
+                        site_id,
+                        owner_email,
+                        tenant_domain,
+                        run_id,
+                    )
+                else:
+                    logger.info(f"  No delta link for drive {drive_id} — full walk")
+                    count = _walk_drive_items(
+                        graph,
+                        neo4j,
+                        drive_id,
+                        "root",
+                        "",
+                        site_id,
+                        owner_email,
+                        tenant_domain,
+                        run_id,
+                    )
+                    try:
+                        link = graph.seed_delta_link(drive_id)
+                        neo4j.save_delta_link(drive_id, link)
+                    except Exception as e:
+                        logger.warning(
+                            f"Could not seed delta link for drive {drive_id}: {e}"
+                        )
+
             total += count
 
         logger.info(f"  {site_name}: done. Running total: {total}")

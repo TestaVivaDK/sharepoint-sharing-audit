@@ -11,6 +11,7 @@ from shared.classify import (
     get_permission_role,
     get_granted_by,
 )
+from collector.delta import delta_scan_drive
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +113,7 @@ def collect_onedrive_user(
     user: dict,
     run_id: str,
     tenant_domain: str,
+    is_full: bool = True,
 ) -> int:
     """Collect all sharing permissions for one user's OneDrive. Returns item count."""
     upn = user["userPrincipalName"]
@@ -130,17 +132,55 @@ def collect_onedrive_user(
     neo4j.merge_site(site_id, display_name, drive.get("webUrl", ""), "OneDrive")
     neo4j.merge_owns(upn, site_id)
 
-    count = _walk_drive_items(
-        graph,
-        neo4j,
-        drive_id,
-        "root",
-        "",
-        site_id,
-        upn,
-        tenant_domain,
-        run_id,
-    )
+    if is_full:
+        count = _walk_drive_items(
+            graph,
+            neo4j,
+            drive_id,
+            "root",
+            "",
+            site_id,
+            upn,
+            tenant_domain,
+            run_id,
+        )
+        # Seed delta link for next scan
+        try:
+            link = graph.seed_delta_link(drive_id)
+            neo4j.save_delta_link(drive_id, link)
+        except Exception as e:
+            logger.warning(f"Could not seed delta link for {upn}: {e}")
+    else:
+        delta_link = neo4j.get_delta_link(drive_id)
+        if delta_link:
+            count = delta_scan_drive(
+                graph,
+                neo4j,
+                drive_id,
+                delta_link,
+                site_id,
+                upn,
+                tenant_domain,
+                run_id,
+            )
+        else:
+            logger.info(f"  No delta link for {upn} — falling back to full walk")
+            count = _walk_drive_items(
+                graph,
+                neo4j,
+                drive_id,
+                "root",
+                "",
+                site_id,
+                upn,
+                tenant_domain,
+                run_id,
+            )
+            try:
+                link = graph.seed_delta_link(drive_id)
+                neo4j.save_delta_link(drive_id, link)
+            except Exception as e:
+                logger.warning(f"Could not seed delta link for {upn}: {e}")
 
     logger.info(f"OneDrive {display_name} ({upn}): {count} shared items")
     return count

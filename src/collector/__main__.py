@@ -2,6 +2,7 @@
 
 import logging
 import os
+from datetime import datetime, timezone, timedelta
 
 from shared.config import CollectorConfig
 from shared.neo4j_client import Neo4jClient
@@ -11,6 +12,34 @@ from collector.sharepoint import collect_sharepoint_sites
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
+
+
+def _should_full_scan(config: CollectorConfig, neo4j: Neo4jClient) -> bool:
+    """Determine if a full scan is needed."""
+    if config.force_full_scan:
+        logger.info("FORCE_FULL_SCAN is set — running full scan.")
+        return True
+
+    if not neo4j.has_delta_links():
+        logger.info("No delta links stored — running full scan.")
+        return True
+
+    last_full = neo4j.get_last_full_scan_time()
+    if not last_full:
+        logger.info("No prior full scan found — running full scan.")
+        return True
+
+    last_full_dt = datetime.fromisoformat(last_full)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=config.full_scan_interval_days)
+    if last_full_dt < cutoff:
+        logger.info(
+            f"Last full scan was {last_full} (>{config.full_scan_interval_days}d ago) "
+            "— running full scan."
+        )
+        return True
+
+    logger.info(f"Last full scan was {last_full} — running delta scan.")
+    return False
 
 
 def main():
@@ -31,8 +60,10 @@ def main():
     tenant_domain = graph.get_tenant_domain()
     logger.info(f"Tenant domain: {tenant_domain}")
 
-    run_id = neo4j.create_scan_run()
-    logger.info(f"Scan run: {run_id}")
+    is_full = _should_full_scan(config, neo4j)
+    scan_type = "full" if is_full else "delta"
+    run_id = neo4j.create_scan_run(scan_type)
+    logger.info(f"Scan run: {run_id} (type={scan_type})")
 
     total = 0
 
@@ -53,13 +84,17 @@ def main():
             logger.info(
                 f"[{i}/{len(users)}] OneDrive: {user.get('displayName', '?')} ({upn})"
             )
-            count = collect_onedrive_user(graph, neo4j, user, run_id, tenant_domain)
+            count = collect_onedrive_user(
+                graph, neo4j, user, run_id, tenant_domain, is_full
+            )
             total += count
 
         # SharePoint audit
         if os.environ.get("SKIP_SHAREPOINT", "").lower() not in ("1", "true", "yes"):
             logger.info("=== Starting SharePoint Audit ===")
-            sp_count = collect_sharepoint_sites(graph, neo4j, run_id, tenant_domain)
+            sp_count = collect_sharepoint_sites(
+                graph, neo4j, run_id, tenant_domain, is_full
+            )
             total += sp_count
         else:
             logger.info("Skipping SharePoint audit (SKIP_SHAREPOINT is set)")
