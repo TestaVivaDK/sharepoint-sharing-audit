@@ -26,9 +26,13 @@ class GraphClient:
             self._token_expires_at = token.expires_on
         return self._token
 
-    def _make_request(self, url: str, params: dict | None = None) -> dict:
+    def _make_request(
+        self, url: str, params: dict | None = None, extra_headers: dict | None = None
+    ) -> dict:
         """Make a GET request to the Graph API with retry logic."""
         headers = {"Authorization": f"Bearer {self._get_token()}"}
+        if extra_headers:
+            headers.update(extra_headers)
         for attempt in range(4):
             try:
                 resp = httpx.get(url, headers=headers, params=params, timeout=30)
@@ -142,6 +146,39 @@ class GraphClient:
                 or p.get("inheritedFrom", {}).get("path")
             )
         ]
+
+    def seed_delta_link(self, drive_id: str) -> str:
+        """Get initial delta link for a drive without enumerating items."""
+        data = self._make_request(
+            f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root/delta",
+            {"token": "latest"},
+        )
+        return data["@odata.deltaLink"]
+
+    def get_drive_delta(self, delta_url: str) -> tuple[list[dict], str]:
+        """Follow a delta link, return (changed_items, new_delta_link).
+
+        Uses Prefer headers to track permission changes and deleted items.
+        Paginates through @odata.nextLink, returns final @odata.deltaLink.
+        """
+        prefer = (
+            "deltashowsharingchanges, deltashowremovedasdeleted, "
+            "deltatraversepermissiongaps"
+        )
+        items: list[dict] = []
+        url: str | None = delta_url
+        delta_link = ""
+
+        while url:
+            data = self._make_request(url, extra_headers={"Prefer": prefer})
+            items.extend(data.get("value", []))
+            url = data.get("@odata.nextLink")
+            if "@odata.deltaLink" in data:
+                delta_link = data["@odata.deltaLink"]
+            if url and self.delay_ms > 0:
+                time.sleep(self.delay_ms / 1000)
+
+        return items, delta_link
 
     def throttle(self):
         """Pause between API calls."""
