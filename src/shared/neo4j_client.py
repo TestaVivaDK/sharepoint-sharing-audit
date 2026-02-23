@@ -232,11 +232,13 @@ class Neo4jClient:
         return result[0]["deltaLink"] if result else None
 
     def remove_file_permissions(self, drive_id: str, item_id: str, run_id: str):
-        """Remove all SHARED_WITH relationships for a deleted file."""
+        """Remove sharing relationships and mark a deleted file."""
         self.execute(
-            """MATCH (f:File {driveId: $driveId, itemId: $itemId})-[s:SHARED_WITH]->()
-               DELETE s""",
-            {"driveId": drive_id, "itemId": item_id},
+            """MATCH (f:File {driveId: $driveId, itemId: $itemId})
+               OPTIONAL MATCH (f)-[s:SHARED_WITH]->()
+               DELETE s
+               SET f.deletedAt = datetime(), f.deletedByRunId = $runId""",
+            {"driveId": drive_id, "itemId": item_id, "runId": run_id},
         )
 
     def get_last_full_scan_time(self) -> str | None:

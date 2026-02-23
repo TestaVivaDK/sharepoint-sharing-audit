@@ -2,6 +2,8 @@
 
 import logging
 
+import httpx
+
 from collector.graph_client import GraphClient
 from shared.neo4j_client import Neo4jClient
 from shared.classify import (
@@ -153,16 +155,40 @@ def collect_onedrive_user(
     else:
         delta_link = neo4j.get_delta_link(drive_id)
         if delta_link:
-            count = delta_scan_drive(
-                graph,
-                neo4j,
-                drive_id,
-                delta_link,
-                site_id,
-                upn,
-                tenant_domain,
-                run_id,
-            )
+            try:
+                count = delta_scan_drive(
+                    graph,
+                    neo4j,
+                    drive_id,
+                    delta_link,
+                    site_id,
+                    upn,
+                    tenant_domain,
+                    run_id,
+                )
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code in (410, 404):
+                    logger.warning(
+                        f"Delta link expired for {upn}, falling back to full walk"
+                    )
+                    count = _walk_drive_items(
+                        graph,
+                        neo4j,
+                        drive_id,
+                        "root",
+                        "",
+                        site_id,
+                        upn,
+                        tenant_domain,
+                        run_id,
+                    )
+                    try:
+                        link = graph.seed_delta_link(drive_id)
+                        neo4j.save_delta_link(drive_id, link)
+                    except Exception as ex:
+                        logger.warning(f"Could not seed delta link for {upn}: {ex}")
+                else:
+                    raise
         else:
             logger.info(f"  No delta link for {upn} — falling back to full walk")
             count = _walk_drive_items(

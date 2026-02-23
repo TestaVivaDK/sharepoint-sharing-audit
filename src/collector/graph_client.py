@@ -153,7 +153,10 @@ class GraphClient:
             f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root/delta",
             {"token": "latest"},
         )
-        return data["@odata.deltaLink"]
+        delta_link = data.get("@odata.deltaLink")
+        if not delta_link:
+            raise ValueError(f"No deltaLink in response for drive {drive_id}")
+        return delta_link
 
     def get_drive_delta(self, delta_url: str) -> tuple[list[dict], str]:
         """Follow a delta link, return (changed_items, new_delta_link).

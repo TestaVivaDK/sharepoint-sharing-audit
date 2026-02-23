@@ -63,9 +63,11 @@ def delta_scan_drive(
         item_type = "Folder" if item.get("folder") else "File"
         web_url = item.get("webUrl", "")
 
-        # Content-only change: just update file metadata
+        # Content-only change: update file metadata and relationships
         if not item.get("@microsoft.graph.sharedChanged"):
             neo4j.merge_file(drive_id, item_id, item_path, web_url, item_type)
+            neo4j.merge_contains(site_id, drive_id, item_id)
+            neo4j.mark_file_found(drive_id, item_id, run_id)
             continue
 
         # Permission change: re-fetch and re-merge
@@ -114,5 +116,8 @@ def delta_scan_drive(
             count += 1
 
     # Save the new delta link for next scan
-    neo4j.save_delta_link(drive_id, new_delta_link)
+    if new_delta_link:
+        neo4j.save_delta_link(drive_id, new_delta_link)
+    else:
+        logger.warning(f"No delta link returned for drive {drive_id}")
     return count
