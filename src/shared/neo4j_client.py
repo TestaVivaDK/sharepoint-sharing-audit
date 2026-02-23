@@ -27,16 +27,24 @@ class Neo4jClient:
             "CREATE CONSTRAINT IF NOT EXISTS FOR (s:Site) REQUIRE s.siteId IS UNIQUE",
             "CREATE CONSTRAINT IF NOT EXISTS FOR (r:ScanRun) REQUIRE r.runId IS UNIQUE",
             "CREATE INDEX IF NOT EXISTS FOR (f:File) ON (f.driveId, f.itemId)",
+            "CREATE CONSTRAINT IF NOT EXISTS FOR (d:DeltaState) REQUIRE d.driveId IS UNIQUE",
         ]
         for c in constraints:
             self.execute(c)
 
-    def create_scan_run(self) -> str:
+    def create_scan_run(self, scan_type: str = "full") -> str:
         """Create a new ScanRun node. Returns the runId."""
         run_id = str(uuid.uuid4())
         self.execute(
-            "CREATE (r:ScanRun {runId: $runId, timestamp: $ts, status: 'running'})",
-            {"runId": run_id, "ts": datetime.now(timezone.utc).isoformat()},
+            """CREATE (r:ScanRun {
+                runId: $runId, timestamp: $ts,
+                status: 'running', scanType: $scanType
+            })""",
+            {
+                "runId": run_id,
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "scanType": scan_type,
+            },
         )
         return run_id
 
@@ -205,3 +213,43 @@ class Neo4jClient:
                 "siteId": site_id,
             },
         )
+
+    def save_delta_link(self, drive_id: str, delta_link: str):
+        """Store or update the delta link for a drive."""
+        self.execute(
+            """MERGE (d:DeltaState {driveId: $driveId})
+               SET d.deltaLink = $deltaLink,
+                   d.updatedAt = datetime()""",
+            {"driveId": drive_id, "deltaLink": delta_link},
+        )
+
+    def get_delta_link(self, drive_id: str) -> str | None:
+        """Get the stored delta link for a drive, or None."""
+        result = self.execute(
+            "MATCH (d:DeltaState {driveId: $driveId}) RETURN d.deltaLink AS deltaLink",
+            {"driveId": drive_id},
+        )
+        return result[0]["deltaLink"] if result else None
+
+    def remove_file_permissions(self, drive_id: str, item_id: str, run_id: str):
+        """Remove all SHARED_WITH relationships for a deleted file."""
+        self.execute(
+            """MATCH (f:File {driveId: $driveId, itemId: $itemId})-[s:SHARED_WITH]->()
+               DELETE s""",
+            {"driveId": drive_id, "itemId": item_id},
+        )
+
+    def get_last_full_scan_time(self) -> str | None:
+        """Get the timestamp of the most recent completed full scan."""
+        result = self.execute("""
+            MATCH (r:ScanRun {status: 'completed', scanType: 'full'})
+            RETURN r.timestamp AS timestamp
+            ORDER BY r.timestamp DESC
+            LIMIT 1
+        """)
+        return result[0]["timestamp"] if result else None
+
+    def has_delta_links(self) -> bool:
+        """Check if any delta links are stored."""
+        result = self.execute("MATCH (d:DeltaState) RETURN count(d) AS count")
+        return result[0]["count"] > 0
