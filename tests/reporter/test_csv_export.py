@@ -6,14 +6,30 @@ from reporter.csv_export import generate_csv
 
 def make_records():
     return [
-        {"risk_level": "HIGH", "source": "OneDrive", "item_path": "/doc.xlsx",
-         "item_web_url": "https://x.com/doc", "sharing_type": "Link-Anyone",
-         "shared_with": "Anyone with the link", "shared_with_type": "Anonymous",
-         "role": "Read", "created_date_time": "2025-01-01", "owner_email": "a@test.dk"},
-        {"risk_level": "LOW", "source": "SharePoint", "item_path": "/report.pdf",
-         "item_web_url": "https://x.com/report", "sharing_type": "User",
-         "shared_with": "b@test.dk", "shared_with_type": "Internal",
-         "role": "Write", "created_date_time": "2025-02-01", "owner_email": "a@test.dk"},
+        {
+            "risk_level": "HIGH",
+            "source": "OneDrive",
+            "item_path": "/doc.xlsx",
+            "item_web_url": "https://x.com/doc",
+            "sharing_type": "Link-Anyone",
+            "shared_with": "Anyone with the link",
+            "shared_with_type": "Anonymous",
+            "role": "Read",
+            "created_date_time": "2025-01-01",
+            "owner_email": "a@test.dk",
+        },
+        {
+            "risk_level": "LOW",
+            "source": "SharePoint",
+            "item_path": "/report.pdf",
+            "item_web_url": "https://x.com/report",
+            "sharing_type": "User",
+            "shared_with": "b@test.dk",
+            "shared_with_type": "Internal",
+            "role": "Write",
+            "created_date_time": "2025-02-01",
+            "owner_email": "a@test.dk",
+        },
     ]
 
 

@@ -17,10 +17,13 @@ class TestUnshareEndpoint:
         sid = app.state.sessions.create("user@test.com", "Test User")
         client.cookies.set("session_id", sid)
 
-        resp = client.post("/api/unshare", json={
-            "file_ids": ["d1:i1", "d2:i2"],
-            "graph_token": "fake-token",
-        })
+        resp = client.post(
+            "/api/unshare",
+            json={
+                "file_ids": ["d1:i1", "d2:i2"],
+                "graph_token": "fake-token",
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["succeeded"]) == 2
@@ -30,10 +33,13 @@ class TestUnshareEndpoint:
     def test_unshare_requires_auth(self):
         app = create_app()
         client = TestClient(app)
-        resp = client.post("/api/unshare", json={
-            "file_ids": ["d1:i1"],
-            "graph_token": "fake-token",
-        })
+        resp = client.post(
+            "/api/unshare",
+            json={
+                "file_ids": ["d1:i1"],
+                "graph_token": "fake-token",
+            },
+        )
         assert resp.status_code == 401
 
     @patch("webapp.routes_unshare.bulk_unshare", new_callable=AsyncMock)
@@ -44,10 +50,13 @@ class TestUnshareEndpoint:
         sid = app.state.sessions.create("user@test.com", "Test User")
         client.cookies.set("session_id", sid)
 
-        resp = client.post("/api/unshare", json={
-            "file_ids": ["d1:i1"],
-            "graph_token": "fake-token",
-        })
+        resp = client.post(
+            "/api/unshare",
+            json={
+                "file_ids": ["d1:i1"],
+                "graph_token": "fake-token",
+            },
+        )
         # fake-token can't be decoded, so it returns 400
         assert resp.status_code == 400
         mock_bulk.assert_not_called()

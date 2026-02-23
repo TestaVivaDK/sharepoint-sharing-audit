@@ -20,15 +20,26 @@ class TestFilesEndpoint:
         mock_neo4j = MagicMock()
         mock_neo4j.execute.side_effect = [
             # get_last_scan_time
-            [{"runId": "run-1", "timestamp": "2026-02-18T12:00:00Z", "status": "completed"}],
+            [
+                {
+                    "runId": "run-1",
+                    "timestamp": "2026-02-18T12:00:00Z",
+                    "status": "completed",
+                }
+            ],
             # get_user_files
             [
                 {
-                    "drive_id": "d1", "item_id": "i1",
-                    "risk_level": "HIGH", "source": "OneDrive",
-                    "item_path": "/doc.xlsx", "item_web_url": "https://x.com/doc",
-                    "item_type": "File", "sharing_type": "Link-Anyone",
-                    "shared_with": "anonymous", "shared_with_type": "Anonymous",
+                    "drive_id": "d1",
+                    "item_id": "i1",
+                    "risk_level": "HIGH",
+                    "source": "OneDrive",
+                    "item_path": "/doc.xlsx",
+                    "item_web_url": "https://x.com/doc",
+                    "item_type": "File",
+                    "sharing_type": "Link-Anyone",
+                    "shared_with": "anonymous",
+                    "shared_with_type": "Anonymous",
                     "role": "Read",
                 }
             ],
@@ -52,14 +63,28 @@ class TestStatsEndpoint:
         mock_neo4j = MagicMock()
         mock_neo4j.execute.side_effect = [
             # get_last_scan_time
-            [{"runId": "run-1", "timestamp": "2026-02-18T12:00:00Z", "status": "completed"}],
+            [
+                {
+                    "runId": "run-1",
+                    "timestamp": "2026-02-18T12:00:00Z",
+                    "status": "completed",
+                }
+            ],
             # get_user_files (called by get_user_stats)
             [
-                {"drive_id": "d1", "item_id": "i1", "risk_level": "HIGH",
-                 "source": "OneDrive", "item_path": "/doc.xlsx",
-                 "item_web_url": "", "item_type": "File",
-                 "sharing_type": "Link-Anyone", "shared_with": "anonymous",
-                 "shared_with_type": "Anonymous", "role": "Read"},
+                {
+                    "drive_id": "d1",
+                    "item_id": "i1",
+                    "risk_level": "HIGH",
+                    "source": "OneDrive",
+                    "item_path": "/doc.xlsx",
+                    "item_web_url": "",
+                    "item_type": "File",
+                    "sharing_type": "Link-Anyone",
+                    "shared_with": "anonymous",
+                    "shared_with_type": "Anonymous",
+                    "role": "Read",
+                },
             ],
         ]
         client, app = make_authed_client(mock_neo4j)

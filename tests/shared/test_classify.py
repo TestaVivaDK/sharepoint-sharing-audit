@@ -77,10 +77,20 @@ class TestGetRiskLevel:
         assert get_risk_level("User", "Guest", "") == "HIGH"
 
     def test_sensitive_folder_is_high(self):
-        assert get_risk_level("Link-SpecificPeople", "Internal", "/Documents/Ledelse/Budget.xlsx") == "HIGH"
+        assert (
+            get_risk_level(
+                "Link-SpecificPeople", "Internal", "/Documents/Ledelse/Budget.xlsx"
+            )
+            == "HIGH"
+        )
 
     def test_sensitive_folder_løn(self):
-        assert get_risk_level("Link-SpecificPeople", "Internal", "/Documents/Løn/salaries.xlsx") == "HIGH"
+        assert (
+            get_risk_level(
+                "Link-SpecificPeople", "Internal", "/Documents/Løn/salaries.xlsx"
+            )
+            == "HIGH"
+        )
 
     def test_sensitive_folder_datarum(self):
         assert get_risk_level("User", "Internal", "/Datarum/contracts.pdf") == "HIGH"
@@ -89,7 +99,10 @@ class TestGetRiskLevel:
         assert get_risk_level("Link-Organization", "Internal", "") == "MEDIUM"
 
     def test_specific_internal_is_low(self):
-        assert get_risk_level("Link-SpecificPeople", "Internal", "/Documents/report.xlsx") == "LOW"
+        assert (
+            get_risk_level("Link-SpecificPeople", "Internal", "/Documents/report.xlsx")
+            == "LOW"
+        )
 
     def test_user_internal_is_low(self):
         assert get_risk_level("User", "Internal", "/Documents/notes.docx") == "LOW"

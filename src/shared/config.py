@@ -35,9 +35,7 @@ class CollectorConfig:
         in ("1", "true", "yes")
     )
     full_scan_interval_days: int = field(
-        default_factory=lambda: int(
-            os.environ.get("FULL_SCAN_INTERVAL_DAYS", "7")
-        )
+        default_factory=lambda: int(os.environ.get("FULL_SCAN_INTERVAL_DAYS", "7"))
     )
 
 

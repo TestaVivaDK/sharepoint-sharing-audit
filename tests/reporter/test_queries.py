@@ -10,6 +10,7 @@ NEO4J_PASSWORD = os.environ.get("NEO4J_TEST_PASSWORD", "testpassword")
 
 try:
     from neo4j import GraphDatabase
+
     _driver = GraphDatabase.driver(NEO4J_URI, auth=("neo4j", NEO4J_PASSWORD))
     _driver.verify_connectivity()
     _driver.close()
@@ -33,8 +34,17 @@ def client():
     c.merge_owns("a@test.dk", "site-1")
     c.merge_file("d1", "i1", "/doc.xlsx", "https://x.com/doc", "File")
     c.merge_contains("site-1", "d1", "i1")
-    c.merge_shared_with("d1", "i1", "ext@gmail.com", "Link-SpecificPeople",
-                        "External", "Read", "HIGH", "2025-01-01", run_id)
+    c.merge_shared_with(
+        "d1",
+        "i1",
+        "ext@gmail.com",
+        "Link-SpecificPeople",
+        "External",
+        "Read",
+        "HIGH",
+        "2025-01-01",
+        run_id,
+    )
     c.mark_file_found("d1", "i1", run_id)
     yield c, run_id
     c.execute("MATCH (n) DETACH DELETE n")

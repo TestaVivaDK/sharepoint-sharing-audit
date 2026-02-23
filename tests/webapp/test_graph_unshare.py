@@ -17,7 +17,11 @@ class TestRemoveAllPermissions:
         perms_response.json.return_value = {
             "value": [
                 {"id": "perm-1", "roles": ["read"]},
-                {"id": "perm-2", "roles": ["write"], "inheritedFrom": {"driveId": "d0"}},
+                {
+                    "id": "perm-2",
+                    "roles": ["write"],
+                    "inheritedFrom": {"driveId": "d0"},
+                },
                 {"id": "perm-3", "roles": ["read"], "link": {"scope": "anonymous"}},
             ]
         }

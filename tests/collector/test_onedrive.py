@@ -7,15 +7,25 @@ from collector.onedrive import collect_onedrive_user
 def make_mock_graph():
     mock = MagicMock()
     mock.get_user_drive.return_value = {
-        "id": "drive-1", "webUrl": "https://x.com/drive"
+        "id": "drive-1",
+        "webUrl": "https://x.com/drive",
     }
     mock.get_drive_children.return_value = [
-        {"id": "item-1", "name": "doc.xlsx", "webUrl": "https://x.com/doc",
-         "file": {"mimeType": "x"}, "folder": None},
+        {
+            "id": "item-1",
+            "name": "doc.xlsx",
+            "webUrl": "https://x.com/doc",
+            "file": {"mimeType": "x"},
+            "folder": None,
+        },
     ]
     mock.get_item_permissions.return_value = [
-        {"id": "p1", "link": {"scope": "organization"}, "roles": ["read"],
-         "inheritedFrom": {}},
+        {
+            "id": "p1",
+            "link": {"scope": "organization"},
+            "roles": ["read"],
+            "inheritedFrom": {},
+        },
     ]
     mock.delay_ms = 0
     mock.throttle = MagicMock()

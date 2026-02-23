@@ -1,6 +1,6 @@
 """Tests for delta scan logic."""
 
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 from collector.delta import delta_scan_drive
 
 

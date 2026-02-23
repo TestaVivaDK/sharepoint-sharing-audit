@@ -9,6 +9,7 @@ NEO4J_PASSWORD = os.environ.get("NEO4J_TEST_PASSWORD", "testpassword")
 
 try:
     from neo4j import GraphDatabase
+
     _driver = GraphDatabase.driver(NEO4J_URI, auth=("neo4j", NEO4J_PASSWORD))
     _driver.verify_connectivity()
     _driver.close()
@@ -46,22 +47,30 @@ class TestScanRun:
 class TestMergeNodes:
     def test_merge_user(self, client):
         client.merge_user("a@test.dk", "Alice", "internal")
-        result = client.execute("MATCH (u:User {email: 'a@test.dk'}) RETURN u.displayName AS name")
+        result = client.execute(
+            "MATCH (u:User {email: 'a@test.dk'}) RETURN u.displayName AS name"
+        )
         assert result[0]["name"] == "Alice"
 
     def test_merge_user_idempotent(self, client):
         client.merge_user("a@test.dk", "Alice", "internal")
         client.merge_user("a@test.dk", "Alice Updated", "internal")
-        result = client.execute("MATCH (u:User {email: 'a@test.dk'}) RETURN count(u) AS c")
+        result = client.execute(
+            "MATCH (u:User {email: 'a@test.dk'}) RETURN count(u) AS c"
+        )
         assert result[0]["c"] == 1
 
     def test_merge_site(self, client):
         client.merge_site("site-1", "Marketing", "https://example.com", "SharePoint")
-        result = client.execute("MATCH (s:Site {siteId: 'site-1'}) RETURN s.name AS name")
+        result = client.execute(
+            "MATCH (s:Site {siteId: 'site-1'}) RETURN s.name AS name"
+        )
         assert result[0]["name"] == "Marketing"
 
     def test_merge_file(self, client):
-        client.merge_file("drive-1", "item-1", "/doc.xlsx", "https://example.com/doc.xlsx", "File")
+        client.merge_file(
+            "drive-1", "item-1", "/doc.xlsx", "https://example.com/doc.xlsx", "File"
+        )
         result = client.execute(
             "MATCH (f:File {driveId: 'drive-1', itemId: 'item-1'}) RETURN f.path AS path"
         )
@@ -73,7 +82,8 @@ class TestRelationships:
         client.merge_file("d1", "i1", "/doc.xlsx", "https://x.com/doc", "File")
         client.merge_user("ext@gmail.com", "External", "external")
         client.merge_shared_with(
-            drive_id="d1", item_id="i1",
+            drive_id="d1",
+            item_id="i1",
             user_email="ext@gmail.com",
             sharing_type="Link-SpecificPeople",
             shared_with_type="External",
