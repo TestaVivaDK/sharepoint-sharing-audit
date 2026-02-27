@@ -28,7 +28,16 @@ export interface StatsResponse {
   scan_status: 'completed' | 'running' | null
 }
 
+export type UnshareReason = 'ACCESS_DENIED' | 'NOT_FOUND' | 'THROTTLED' | 'VERIFICATION_FAILED' | 'UNKNOWN'
+
+export interface UnshareFailure {
+  id: string
+  reason: UnshareReason
+  message: string
+  action: string
+}
+
 export interface UnshareResponse {
   succeeded: string[]
-  failed: { id: string; error: string }[]
+  failed: UnshareFailure[]
 }
