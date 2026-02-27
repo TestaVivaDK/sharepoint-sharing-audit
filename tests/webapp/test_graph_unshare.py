@@ -95,6 +95,42 @@ class TestRemoveAllPermissions:
         assert result["verified"] is False
 
     @pytest.mark.asyncio
+    async def test_classifies_403_as_access_denied(self):
+        """HTTP 403 on DELETE should produce ACCESS_DENIED structured error."""
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+
+        perms_response = _make_response(
+            json_data={"value": [{"id": "perm-1", "roles": ["read"]}]}
+        )
+        forbidden_response = _make_response(
+            status_code=403,
+            json_data={"error": {"code": "accessDenied", "message": "Access denied"}},
+        )
+
+        mock_client.request.side_effect = [perms_response, forbidden_response]
+
+        result = await remove_all_permissions(mock_client, "d1", "i1")
+        assert len(result["failed"]) == 1
+        assert result["failed"][0]["reason"] == "ACCESS_DENIED"
+        assert "action" in result["failed"][0]
+
+    @pytest.mark.asyncio
+    async def test_classifies_404_as_not_found(self):
+        """HTTP 404 on DELETE should produce NOT_FOUND structured error."""
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+
+        perms_response = _make_response(
+            json_data={"value": [{"id": "perm-1", "roles": ["read"]}]}
+        )
+        not_found_response = _make_response(status_code=404)
+
+        mock_client.request.side_effect = [perms_response, not_found_response]
+
+        result = await remove_all_permissions(mock_client, "d1", "i1")
+        assert len(result["failed"]) == 1
+        assert result["failed"][0]["reason"] == "NOT_FOUND"
+
+    @pytest.mark.asyncio
     async def test_retry_on_429(self):
         """Should retry after 429 with Retry-After header."""
         mock_client = AsyncMock(spec=httpx.AsyncClient)

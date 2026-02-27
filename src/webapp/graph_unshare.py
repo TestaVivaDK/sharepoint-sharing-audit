@@ -40,6 +40,42 @@ def _is_removable(perm: dict) -> bool:
     return not inherited and not owner
 
 
+def _classify_error(status_code: int, resp: httpx.Response | None = None) -> dict:
+    """Classify an HTTP error into a structured error with reason, message, and action."""
+    if status_code == 403:
+        return {
+            "reason": "ACCESS_DENIED",
+            "message": "Insufficient permissions to modify sharing",
+            "action": "Ask a site admin to remove sharing for this file",
+        }
+    if status_code == 404:
+        return {
+            "reason": "NOT_FOUND",
+            "message": "File or permission no longer exists",
+            "action": "It may have already been removed — refresh the page",
+        }
+    if status_code == 429:
+        return {
+            "reason": "THROTTLED",
+            "message": "Microsoft rate limit exceeded",
+            "action": "Wait a few minutes and try again",
+        }
+    detail = ""
+    if resp is not None:
+        try:
+            detail = resp.json().get("error", {}).get("message", "")
+        except Exception:
+            pass
+    msg = f"Unexpected error (HTTP {status_code})"
+    if detail:
+        msg += f": {detail}"
+    return {
+        "reason": "UNKNOWN",
+        "message": msg,
+        "action": "Check the file directly in SharePoint",
+    }
+
+
 async def remove_all_permissions(
     client: httpx.AsyncClient,
     drive_id: str,
@@ -66,9 +102,15 @@ async def remove_all_permissions(
             if del_resp.status_code in (204, 200):
                 succeeded.append(perm_id)
             else:
-                failed.append({"id": perm_id, "error": f"HTTP {del_resp.status_code}"})
+                err = _classify_error(del_resp.status_code, del_resp)
+                failed.append({"id": perm_id, **err})
         except Exception as e:
-            failed.append({"id": perm_id, "error": str(e)})
+            failed.append({
+                "id": perm_id,
+                "reason": "UNKNOWN",
+                "message": f"Unexpected error: {e}",
+                "action": "Check the file directly in SharePoint",
+            })
 
     # Verification: re-fetch permissions and check none remain
     verified = False
