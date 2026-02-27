@@ -1,6 +1,8 @@
 import { useState } from 'react'
-import { Button, Dialog, DialogTitle, DialogContent, DialogActions, Typography, Alert, Snackbar } from '@mui/material'
+import { Button, Dialog, DialogTitle, DialogContent, DialogActions, Typography } from '@mui/material'
 import { useUnshare } from '../api/hooks'
+import { UnshareResultDialog } from './UnshareResultDialog'
+import type { UnshareResponse } from '../api/types'
 
 interface Props {
   selectedIds: string[]
@@ -8,21 +10,43 @@ interface Props {
 }
 
 export function UnshareButton({ selectedIds, onComplete }: Props) {
-  const [open, setOpen] = useState(false)
-  const [toast, setToast] = useState<{ message: string; severity: 'success' | 'error' } | null>(null)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [result, setResult] = useState<UnshareResponse | null>(null)
   const unshare = useUnshare()
 
   const handleConfirm = async () => {
-    setOpen(false)
+    setConfirmOpen(false)
     try {
-      const result = await unshare.mutateAsync(selectedIds)
-      const msg = result.failed.length
-        ? `${result.succeeded.length} succeeded, ${result.failed.length} failed`
-        : `${result.succeeded.length} files unshared successfully`
-      setToast({ message: msg, severity: result.failed.length ? 'error' : 'success' })
+      const res = await unshare.mutateAsync(selectedIds)
+      setResult(res)
       onComplete()
-    } catch (e) {
-      setToast({ message: `Unshare failed: ${e}`, severity: 'error' })
+    } catch {
+      setResult({
+        succeeded: [],
+        failed: selectedIds.map((id) => ({
+          id,
+          reason: 'UNKNOWN' as const,
+          message: 'Request failed',
+          action: 'Check your connection and try again',
+        })),
+      })
+    }
+  }
+
+  const handleRetry = async (fileIds: string[]) => {
+    try {
+      const res = await unshare.mutateAsync(fileIds)
+      setResult(res)
+    } catch {
+      setResult({
+        succeeded: [],
+        failed: fileIds.map((id) => ({
+          id,
+          reason: 'UNKNOWN' as const,
+          message: 'Request failed',
+          action: 'Check your connection and try again',
+        })),
+      })
     }
   }
 
@@ -32,12 +56,12 @@ export function UnshareButton({ selectedIds, onComplete }: Props) {
         variant="contained"
         color="error"
         disabled={selectedIds.length === 0 || unshare.isPending}
-        onClick={() => setOpen(true)}
+        onClick={() => setConfirmOpen(true)}
       >
         {unshare.isPending ? 'Removing...' : `Remove Sharing (${selectedIds.length})`}
       </Button>
 
-      <Dialog open={open} onClose={() => setOpen(false)}>
+      <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
         <DialogTitle>Remove All Sharing</DialogTitle>
         <DialogContent>
           <Typography>
@@ -46,14 +70,19 @@ export function UnshareButton({ selectedIds, onComplete }: Props) {
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpen(false)}>Cancel</Button>
+          <Button onClick={() => setConfirmOpen(false)}>Cancel</Button>
           <Button onClick={handleConfirm} color="error" variant="contained">Remove Sharing</Button>
         </DialogActions>
       </Dialog>
 
-      <Snackbar open={!!toast} autoHideDuration={6000} onClose={() => setToast(null)}>
-        {toast ? <Alert severity={toast.severity} onClose={() => setToast(null)}>{toast.message}</Alert> : undefined}
-      </Snackbar>
+      {result && (
+        <UnshareResultDialog
+          open={!!result}
+          result={result}
+          onClose={() => setResult(null)}
+          onRetry={handleRetry}
+        />
+      )}
     </>
   )
 }
