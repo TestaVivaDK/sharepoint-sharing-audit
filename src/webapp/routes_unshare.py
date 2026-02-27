@@ -3,7 +3,7 @@
 import logging
 import re
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from jose import jwt
 from pydantic import BaseModel, field_validator
 from webapp.auth import require_session
@@ -51,14 +51,20 @@ def _validate_graph_token_owner(graph_token: str, session_email: str):
 
 
 @router.post("/unshare")
-async def unshare(body: UnshareRequest, session: dict = Depends(require_session)):
+async def unshare(
+    body: UnshareRequest,
+    request: Request,
+    session: dict = Depends(require_session),
+):
     if not body.file_ids:
         raise HTTPException(status_code=400, detail="No files specified")
 
     _validate_graph_token_owner(body.graph_token, session["email"])
 
     logger.info(f"Unshare request from {session['email']}: {len(body.file_ids)} files")
-    result = await bulk_unshare(body.graph_token, body.file_ids)
+    result = await bulk_unshare(
+        body.graph_token, body.file_ids, neo4j_client=request.app.state.neo4j
+    )
     logger.info(
         f"Unshare result: {len(result['succeeded'])} succeeded, {len(result['failed'])} failed"
     )

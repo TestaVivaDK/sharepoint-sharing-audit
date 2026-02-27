@@ -241,6 +241,14 @@ class Neo4jClient:
             {"driveId": drive_id, "itemId": item_id, "runId": run_id},
         )
 
+    def remove_shared_with(self, drive_id: str, item_id: str):
+        """Remove all SHARED_WITH relationships from a file without marking it deleted."""
+        self.execute(
+            """MATCH (f:File {driveId: $driveId, itemId: $itemId})-[s:SHARED_WITH]->()
+               DELETE s""",
+            {"driveId": drive_id, "itemId": item_id},
+        )
+
     def get_last_full_scan_time(self) -> str | None:
         """Get the timestamp of the most recent completed full scan."""
         result = self.execute("""

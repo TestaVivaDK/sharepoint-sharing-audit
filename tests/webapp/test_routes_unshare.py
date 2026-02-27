@@ -1,5 +1,6 @@
 # tests/webapp/test_routes_unshare.py
-from unittest.mock import patch, AsyncMock
+from unittest import mock
+from unittest.mock import patch, AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 from webapp.app import create_app
 
@@ -13,6 +14,7 @@ class TestUnshareEndpoint:
             "failed": [],
         }
         app = create_app()
+        app.state.neo4j = MagicMock()
         client = TestClient(app)
         sid = app.state.sessions.create("user@test.com", "Test User")
         client.cookies.set("session_id", sid)
@@ -27,7 +29,9 @@ class TestUnshareEndpoint:
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["succeeded"]) == 2
-        mock_bulk.assert_called_once_with("fake-token", ["d1:i1", "d2:i2"])
+        mock_bulk.assert_called_once_with(
+            "fake-token", ["d1:i1", "d2:i2"], neo4j_client=mock.ANY
+        )
         mock_validate.assert_called_once_with("fake-token", "user@test.com")
 
     def test_unshare_requires_auth(self):
