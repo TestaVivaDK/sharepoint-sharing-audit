@@ -82,7 +82,7 @@ async def remove_all_permissions(
     item_id: str,
 ) -> dict:
     """Remove all non-inherited permissions from a drive item.
-    Returns {succeeded: [perm_ids], failed: [{id, error}], verified: bool}."""
+    Returns {succeeded: [perm_ids], failed: [{id, reason, message, action}], verified: bool}."""
     url = f"{GRAPH_BASE}/drives/{drive_id}/items/{item_id}/permissions"
     resp = await _request_with_retry(client, "GET", url)
     resp.raise_for_status()
@@ -138,7 +138,7 @@ async def bulk_unshare(
     neo4j_client=None,
 ) -> dict:
     """Remove all sharing from multiple files. file_ids are 'driveId:itemId' strings.
-    Returns {succeeded: [file_ids], failed: [{id, error}]}."""
+    Returns {succeeded: [file_ids], failed: [{id, reason, message, action}]}."""
     succeeded = []
     failed = []
 
@@ -155,16 +155,30 @@ async def bulk_unshare(
                 drive_id, item_id = file_id.split(":", 1)
                 result = await remove_all_permissions(client, drive_id, item_id)
                 if result["failed"]:
-                    failed.append(
-                        {
-                            "id": file_id,
-                            "error": f"{len(result['failed'])} permissions failed",
-                        }
+                    # Pick most actionable reason from permission-level failures
+                    priority = {
+                        "ACCESS_DENIED": 0,
+                        "THROTTLED": 1,
+                        "NOT_FOUND": 2,
+                        "UNKNOWN": 3,
+                    }
+                    best = min(
+                        result["failed"],
+                        key=lambda f: priority.get(f.get("reason", "UNKNOWN"), 99),
                     )
+                    failed.append({
+                        "id": file_id,
+                        "reason": best.get("reason", "UNKNOWN"),
+                        "message": best.get("message", "Permission removal failed"),
+                        "action": best.get("action", "Check the file directly in SharePoint"),
+                    })
                 elif not result["verified"]:
-                    failed.append(
-                        {"id": file_id, "error": "verification failed"}
-                    )
+                    failed.append({
+                        "id": file_id,
+                        "reason": "VERIFICATION_FAILED",
+                        "message": "Permissions deleted but some reappeared",
+                        "action": "Try again, or remove sharing manually in SharePoint",
+                    })
                     logger.warning(f"Unshare not verified for {file_id}")
                 else:
                     succeeded.append(file_id)
@@ -183,7 +197,12 @@ async def bulk_unshare(
                                 f"Neo4j cleanup failed for {file_id}: {e}"
                             )
             except Exception as e:
-                failed.append({"id": file_id, "error": str(e)})
+                failed.append({
+                    "id": file_id,
+                    "reason": "UNKNOWN",
+                    "message": f"Unexpected error: {e}",
+                    "action": "Check the file directly in SharePoint",
+                })
                 logger.warning(f"Unshare failed for {file_id}: {e}")
 
     return {"succeeded": succeeded, "failed": failed}

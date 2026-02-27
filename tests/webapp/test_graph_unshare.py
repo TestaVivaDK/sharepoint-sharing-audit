@@ -201,6 +201,8 @@ class TestBulkUnshare:
 
         assert result["succeeded"] == []
         assert len(result["failed"]) == 1
+        assert result["failed"][0]["reason"] == "VERIFICATION_FAILED"
+        assert "action" in result["failed"][0]
         mock_neo4j.remove_shared_with.assert_not_called()
 
     @pytest.mark.asyncio
@@ -248,3 +250,25 @@ class TestBulkUnshare:
 
         assert result["succeeded"] == ["d1:i1"]
         assert result["failed"] == []
+
+    @pytest.mark.asyncio
+    async def test_structured_error_propagated_from_permission_failure(self):
+        """Permission-level structured errors should propagate to file-level."""
+        perms_resp = _make_response(
+            json_data={"value": [{"id": "p1", "roles": ["read"]}]}
+        )
+        forbidden_resp = _make_response(status_code=403)
+
+        with patch("webapp.graph_unshare.httpx.AsyncClient") as MockClient:
+            ctx = AsyncMock()
+            ctx.request.side_effect = [perms_resp, forbidden_resp]
+            MockClient.return_value.__aenter__ = AsyncMock(return_value=ctx)
+            MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            result = await bulk_unshare("token", ["d1:i1"])
+
+        assert result["succeeded"] == []
+        assert len(result["failed"]) == 1
+        assert result["failed"][0]["id"] == "d1:i1"
+        assert result["failed"][0]["reason"] == "ACCESS_DENIED"
+        assert "action" in result["failed"][0]
