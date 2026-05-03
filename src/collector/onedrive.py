@@ -14,6 +14,7 @@ from shared.classify import (
     get_granted_by,
 )
 from collector.delta import delta_scan_drive
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,7 @@ def _walk_drive_items(
                 web_url=web_url,
                 file_type=item_type,
                 user_email=shared_email,
+                user_id=shared_info["id"] if "id" in shared_info else "-",
                 user_display_name=shared_info["shared_with"],
                 user_source=shared_info["shared_with_type"],
                 sharing_type=sharing_type,
@@ -89,6 +91,9 @@ def _walk_drive_items(
                 granted_by=granted_by,
             )
             count += 1
+
+            if shared_info["shared_with_type"] == "Group" and shared_info["shared_with"] not in ["SharePoint Administrator", "Global Administrator"]:
+                _walk_group_members(graph, neo4j, shared_info["id"], run_id)
 
         # Recurse into folders
         if item.get("folder") and item["folder"].get("childCount", 0) > 0:
@@ -130,7 +135,7 @@ def collect_onedrive_user(
     drive_id = drive["id"]
     site_id = f"onedrive-{user_id}"
 
-    neo4j.merge_user(upn, display_name, "internal")
+    neo4j.merge_user(user_id, upn, display_name, "internal")
     neo4j.merge_site(site_id, display_name, drive.get("webUrl", ""), "OneDrive")
     neo4j.merge_owns(upn, site_id)
 
@@ -210,3 +215,104 @@ def collect_onedrive_user(
 
     logger.info(f"OneDrive {display_name} ({upn}): {count} shared items")
     return count
+
+
+def _walk_group_members(
+        graph: GraphClient,
+        neo4j: Neo4jClient,
+        group_id: str,
+        run_id: str,
+        visited_groups: Optional[set] = None,
+        depth: int = 0,
+        max_depth: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """
+        Recursively retrieve all members of a group, expanding nested groups.
+        
+        Traverses the group membership hierarchy to find all individual users
+        (including guests) at any nesting level. Handles circular group references
+        and enforces a maximum recursion depth.
+        
+        Args:
+            group_id: The group ID to retrieve members for.
+            visited_groups: Set of group IDs already processed (for circular refs).
+            depth: Current recursion depth.
+            max_depth: Maximum recursion depth to prevent infinite loops.
+            
+        Returns:
+            List[Dict[str, Any]]: List of all member objects (users and groups)
+                with id, userType, displayName, and other properties.
+                
+        Example:
+            >>> api = SharePointGraphAPI(client)
+            >>> all_members = api.get_group_members_recursive("group-id")
+            >>> guests = [m for m in all_members if m.get('userType') == 'Guest']
+        """
+        if visited_groups is None:
+            visited_groups = set()
+        
+        if group_id in visited_groups:
+            logger.debug(f"Group {group_id} already processed, skipping (circular ref)")
+            return []
+        
+        if depth > max_depth:
+            logger.warning(
+                f"Maximum recursion depth ({max_depth}) reached for group {group_id}"
+            )
+            return []
+        
+        visited_groups.add(group_id)
+        all_members = []
+        
+        try:
+            logger.debug(f"Retrieving members for group {group_id} (depth {depth})")
+            members = graph.get_group_members(group_id)
+            
+            for member in members:
+                member_id = member.get("id")
+                member_type = member.get("userType")
+                member_email = member.get("userPrincipalName")
+                member_display_name = member.get("displayName")
+                
+                if member_type == "Guest":
+                    all_members.append(member)
+                    logger.debug(
+                        f"Found guest: {member.get('displayName')} "
+                        f"(depth {depth})"
+                    )
+                    neo4j.merge_group_member(group_id, member_email, member_id, member_display_name, "External", run_id)
+
+
+                elif member_type == "Member":
+                    all_members.append(member)
+                    logger.debug(
+                        f"Found member: {member.get('displayName')} "
+                        f"(depth {depth})"
+                    )
+                    neo4j.merge_group_member(group_id, member_email, member_id, member_display_name, "Internal", run_id)
+
+                elif member.get("@odata.type") == "#microsoft.graph.group":
+                    logger.debug(
+                        f"Expanding nested group: {member.get('displayName')} "
+                        f"at depth {depth}"
+                    )
+                    neo4j.merge_nested_group(group_id, member_id, member_display_name, "Group", run_id)
+                    
+                    nested_members = _walk_group_members(
+                        graph,
+                        neo4j,
+                        member_id,
+                        run_id,
+                        visited_groups,
+                        depth + 1,
+                        max_depth,
+                    )
+                    all_members.extend(nested_members)
+                
+            return all_members
+        
+        except Exception as e:
+            logger.error(
+                f"Error recursively retrieving members for group {group_id}: {e}"
+            )
+            return []

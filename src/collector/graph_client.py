@@ -4,6 +4,7 @@ import logging
 import time
 
 from azure.identity import ClientSecretCredential
+from typing import Any, Dict, List, Optional, Tuple
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -182,6 +183,71 @@ class GraphClient:
                 time.sleep(self.delay_ms / 1000)
 
         return items, delta_link
+
+    def get_group_members(self, group_id: str) -> List[Dict[str, Any]]:
+        """
+        Retrieve members of a specific group.
+        
+        Args:
+            group_id: The group ID in Entra ID.
+            
+        Returns:
+            List[Dict[str, Any]]: List of member objects with id, mail,
+                userPrincipalName, displayName, and userType.
+                
+        Raises:
+            RuntimeError: If the API request fails.
+            
+        Example:
+            >>> api = SharePointGraphAPI(client)
+            >>> members = api.get_group_members("group-id")
+            >>> for member in members:
+            >>>     print(f"Member: {member['displayName']}")
+        """
+        logger.debug(f"Retrieving members for group: {group_id}")
+        try:
+            members = self._make_paged_request(
+                url=f"https://graph.microsoft.com/v1.0/groups/{group_id}/members",
+                params={"$select": "id,mail,userPrincipalName,displayName,userType"}
+            )
+            logger.debug(f"Retrieved {len(members)} members for group {group_id}")
+            return members
+        except Exception as e:
+            logger.error(f"Failed to retrieve members for group {group_id}: {e}")
+            return []
+    
+    
+    def get_group_owners(self, group_id: str) -> List[Dict[str, Any]]:
+        """
+        Retrieve the owner(s) of a Microsoft Entra ID group.
+        
+        Args:
+            group_id: The group ID in Entra ID.
+            
+        Returns:
+            List[Dict[str, Any]]: List of owner objects with id, mail,
+                userPrincipalName, displayName, and userType.
+                
+        Raises:
+            RuntimeError: If the API request fails.
+            
+        Example:
+            >>> api = SharePointGraphAPI(client)
+            >>> owners = api.get_group_owner("group-id")
+            >>> for owner in owners:
+            >>>     print(f"Owner: {owner['displayName']}")
+        """
+        logger.debug(f"Retrieving owners for group: {group_id}")
+        try:
+            owners = self._make_paged_request(
+                url=f"https://graph.microsoft.com/v1.0/groups/{group_id}/owners",
+                params={"$select": "id,mail,userPrincipalName,displayName,userType"}
+            )
+            logger.debug(f"Retrieved {len(owners)} owner(s) for group {group_id}")
+            return owners
+        except Exception as e:
+            logger.error(f"Failed to retrieve owners for group {group_id}: {e}")
+            return []
 
     def throttle(self):
         """Pause between API calls."""

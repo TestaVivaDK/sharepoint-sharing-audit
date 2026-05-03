@@ -152,17 +152,32 @@ def get_shared_with_info(permission: dict, tenant_domain: str) -> dict:
         }
 
     granted = permission.get("grantedToV2", {})
-    group = granted.get("group")
-    if group:
+    group = granted.get("group", {})
+    siteGroup = granted.get("siteGroup", {})
+
+    if "displayName" in group:
         return {
+            "id": group.get("id", ""),
+            "displayName":group.get("displayName", ""),
+            "loginName": group.get("loginName", "").lower(),
             "shared_with": group.get("displayName", "Unknown Group"),
-            "shared_with_type": "Internal",
+            "shared_with_type": "Group",
         }
+    # elif "displayName" in siteGroup:
+    #     return {
+    #         "id": siteGroup.get("id", ""),
+    #         "displayName":siteGroup.get("displayName", ""),
+    #         "loginName": siteGroup.get("loginName", "").lower(),
+    #         "shared_with": siteGroup.get("displayName", "Unknown Group"),
+    #         "shared_with_type": "Group",
+    #     }
 
     user = granted.get("user") or permission.get("grantedTo", {}).get("user")
     if user:
+        id = user.get("id", "")
         email = user.get("email", "")
         display = user.get("displayName", "Unknown User")
+        loginName = user.get("loginName", "").lower()
         shared_with = email or display
 
         if "#EXT#" in email:
@@ -171,9 +186,19 @@ def get_shared_with_info(permission: dict, tenant_domain: str) -> dict:
             shared_with_type = "External"
         else:
             shared_with_type = "Internal"
-        return {"shared_with": shared_with, "shared_with_type": shared_with_type}
+        return {
+            "id": id,
+            "displayName": display,
+            "loginName": loginName,
+            "shared_with": shared_with, 
+            "shared_with_type": shared_with_type
+        }
 
-    return {"shared_with": shared_with, "shared_with_type": shared_with_type}
+    return {
+        "id": "-",
+        "shared_with": shared_with, 
+        "shared_with_type": shared_with_type
+    }
 
 
 def is_sensitive_path(item_path: str) -> bool:
