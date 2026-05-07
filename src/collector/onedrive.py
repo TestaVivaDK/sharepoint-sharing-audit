@@ -3,6 +3,7 @@
 import logging
 
 import httpx
+import uuid
 
 from collector.graph_client import GraphClient
 from shared.neo4j_client import Neo4jClient
@@ -53,47 +54,76 @@ def _walk_drive_items(
 
         for perm in permissions:
             sharing_type = get_sharing_type(perm)
-            shared_info = get_shared_with_info(perm, tenant_domain)
             role = get_permission_role(perm)
             granted_by = get_granted_by(perm) or owner_email
-            risk = get_risk_level(
-                sharing_type, shared_info["shared_with_type"], item_path
-            )
+            
+            if sharing_type == "Link-SpecificPeople" or (sharing_type == "Link-Organization" and "grantedToIdentitiesV2" in perm):
+                _walk_link_permission(
+                    graph=graph,
+                    neo4j=neo4j,
+                    site_id=site_id,
+                    drive_id=drive_id,
+                    tenant_domain=tenant_domain,
+                    item_id=item["id"],
+                    item_path=item_path,
+                    web_url=web_url,
+                    file_type=item_type,
+                    sharing_type=sharing_type,
+                    role=role,
+                    permission=perm,
+                    run_id=run_id,
+                    granted_by=granted_by,
+                )
+                
+            else:
+                shared_info = get_shared_with_info(perm, tenant_domain)
+                risk = get_risk_level(
+                    sharing_type, shared_info["shared_with_type"], item_path
+                )
 
-            # Skip owner's own "owner" permission
-            if role == "Owner" and shared_info["shared_with"] == owner_email:
-                continue
+                # Skip owner's own "owner" permission
+                if role == "Owner" and shared_info["shared_with"] == owner_email:
+                    continue
 
-            # Determine the "shared with" email for the User node
-            shared_email = shared_info["shared_with"]
-            if shared_info["shared_with_type"] == "Anonymous":
-                shared_email = "anonymous"
-            elif sharing_type == "Link-Organization":
-                shared_email = "organization"
+                # Determine the "shared with" email for the User node
+                shared_email = shared_info["shared_with"]
+                if shared_info["shared_with_type"] == "Anonymous":
+                    shared_email = "anonymous"
+                elif sharing_type == "Link-Organization":
+                    shared_email = "organization"
 
-            neo4j.merge_permission(
-                site_id=site_id,
-                drive_id=drive_id,
-                item_id=item["id"],
-                item_path=item_path,
-                web_url=web_url,
-                file_type=item_type,
-                user_email=shared_email,
-                user_id=shared_info["id"] if "id" in shared_info else "-",
-                user_display_name=shared_info["shared_with"],
-                user_source=shared_info["shared_with_type"],
-                sharing_type=sharing_type,
-                shared_with_type=shared_info["shared_with_type"],
-                role=role,
-                risk_level=risk,
-                created_date_time=perm.get("createdDateTime", ""),
-                run_id=run_id,
-                granted_by=granted_by,
-            )
-            count += 1
+                # DEBUG
+                if "id" not in shared_info:
+                    logger.error(f"NO ID DETECTED: {item_path} {perm}")
+                elif not is_valid_uuid(shared_info["id"]):
+                    logger.error(f"INVALID UUID DETECTED: {item_path} {perm}")
+                    if "@" in shared_email:
+                        shared_info["id"] = graph.get_user_id(shared_email)
+                        logger.info(f"FOUND ID {shared_info['id']} for user {shared_email}")
 
-            if shared_info["shared_with_type"] == "Group" and shared_info["shared_with"] not in ["SharePoint Administrator", "Global Administrator"]:
-                _walk_group_members(graph, neo4j, shared_info["id"], run_id)
+                neo4j.merge_permission(
+                    site_id=site_id,
+                    drive_id=drive_id,
+                    item_id=item["id"],
+                    item_path=item_path,
+                    web_url=web_url,
+                    file_type=item_type,
+                    user_email=shared_email,
+                    user_id=shared_info["id"] if "id" in shared_info else "-",
+                    user_display_name=shared_info["shared_with"],
+                    user_source=shared_info["shared_with_type"],
+                    sharing_type=sharing_type,
+                    shared_with_type=shared_info["shared_with_type"],
+                    role=role,
+                    risk_level=risk,
+                    created_date_time=perm.get("createdDateTime", ""),
+                    run_id=run_id,
+                    granted_by=granted_by,
+                )
+                count += 1
+
+                if shared_info["shared_with_type"] == "Group" and shared_info["shared_with"] not in ["SharePoint Administrator", "Global Administrator"]:
+                    _walk_group_members(graph, neo4j, shared_info["id"], run_id)
 
         # Recurse into folders
         if item.get("folder") and item["folder"].get("childCount", 0) > 0:
@@ -316,3 +346,104 @@ def _walk_group_members(
                 f"Error recursively retrieving members for group {group_id}: {e}"
             )
             return []
+        
+def _walk_link_permission(
+    graph: GraphClient,
+    neo4j: Neo4jClient,
+    tenant_domain: str,
+    site_id: str,
+    drive_id: str,
+    item_id: str,
+    item_path: str,
+    web_url: str,
+    file_type: str,
+    sharing_type: str,
+    permission: dict,
+    role: str,
+    run_id: str,
+    granted_by: str = ""
+) -> List[Dict[str, Any]]:
+    """Extract individual users targeted by sharing link, write to Neo4j."""
+    #logger.info(f"SHARED WITH LINK: {permission}")
+    link = permission.get("link")
+    if link:
+        identities_v2 = permission.get("grantedToIdentitiesV2", [])
+        if identities_v2:
+            for identity in identities_v2:
+                if "user" in identity:
+                    user = identity.get("user", {})
+                    id = user.get("id", "")
+                    email = user.get("email", "")
+                    display = user.get("displayName", "")
+                    
+                    is_guest = "#EXT#" in email
+                    is_external = tenant_domain and not email.endswith(f"@{tenant_domain}")
+    
+                    if is_guest:
+                        shared_with_type = "Guest"
+                    elif is_external:
+                        shared_with_type = "External"
+                    else:
+                        shared_with_type = "Internal"
+                    
+                    risk = get_risk_level(
+                        sharing_type, shared_with_type, item_path
+                    )
+                    
+                    neo4j.merge_permission(
+                        site_id=site_id,
+                        drive_id=drive_id,
+                        item_id=item_id,
+                        item_path=item_path,
+                        web_url=web_url,
+                        file_type=file_type,
+                        user_email=email,
+                        user_id=id,
+                        user_display_name=display,
+                        user_source=shared_with_type,
+                        sharing_type=sharing_type,
+                        shared_with_type=shared_with_type,
+                        role=role,
+                        risk_level=risk,
+                        created_date_time=permission.get("createdDateTime", ""),
+                        run_id=run_id,
+                        granted_by=granted_by,
+                    )
+                       
+                elif "group" in identity:
+                    group = identity.get("user", {})
+                    id = group.get("id", "")
+                    email = group.get("email", "")
+                    display = group.get("displayName", "Unknown Group")
+                    shared_with_type = "Group"
+                    
+                    neo4j.merge_permission(
+                        site_id=site_id,
+                        drive_id=drive_id,
+                        item_id=item_id,
+                        item_path=item_path,
+                        web_url=web_url,
+                        file_type=file_type,
+                        user_email=email,
+                        user_id=id,
+                        user_display_name=display,
+                        user_source=shared_with_type,
+                        sharing_type=sharing_type,
+                        shared_with_type=shared_with_type,
+                        role=role,
+                        risk_level=risk,
+                        created_date_time=permission.get("createdDateTime", ""),
+                        run_id=run_id,
+                        granted_by=granted_by,
+                    )
+                
+                    _walk_group_members(graph, neo4j, id, run_id)
+
+
+def is_valid_uuid(uuid_to_test, version=4):
+    try:
+        # check for validity of Uuid
+        uuid.UUID(uuid_to_test, version=version)
+    except ValueError:
+        return False
+    return True

@@ -117,34 +117,34 @@ def get_shared_with_info(permission: dict, tenant_domain: str) -> dict:
                 "shared_with_type": "Internal",
             }
 
-        identities_v2 = permission.get("grantedToIdentitiesV2", [])
-        if identities_v2:
-            names: list[str] = []
-            emails: list[str] = []
-            for identity in identities_v2:
-                user = identity.get("user", {})
-                email = user.get("email", "")
-                display = user.get("displayName", "")
-                if email:
-                    names.append(email)
-                    emails.append(email)
-                elif display:
-                    names.append(display)
-            shared_with = "; ".join(names)
+        # identities_v2 = permission.get("grantedToIdentitiesV2", [])
+        # if identities_v2:
+        #     names: list[str] = []
+        #     emails: list[str] = []
+        #     for identity in identities_v2:
+        #         user = identity.get("user", {})
+        #         email = user.get("email", "")
+        #         display = user.get("displayName", "")
+        #         if email:
+        #             names.append(email)
+        #             emails.append(email)
+        #         elif display:
+        #             names.append(display)
+        #     shared_with = "; ".join(names)
 
-            has_guest = any("#EXT#" in e for e in emails)
-            has_external = any(
-                tenant_domain and not e.endswith(f"@{tenant_domain}")
-                for e in emails
-                if "#EXT#" not in e
-            )
-            if has_guest:
-                shared_with_type = "Guest"
-            elif has_external:
-                shared_with_type = "External"
-            else:
-                shared_with_type = "Internal"
-            return {"shared_with": shared_with, "shared_with_type": shared_with_type}
+        #     has_guest = any("#EXT#" in e for e in emails)
+        #     has_external = any(
+        #         tenant_domain and not e.endswith(f"@{tenant_domain}")
+        #         for e in emails
+        #         if "#EXT#" not in e
+        #     )
+        #     if has_guest:
+        #         shared_with_type = "Guest"
+        #     elif has_external:
+        #         shared_with_type = "External"
+        #     else:
+        #         shared_with_type = "Internal"
+        #     return {"shared_with": shared_with, "shared_with_type": shared_with_type}
 
         return {
             "shared_with": "Specific people (details unavailable)",

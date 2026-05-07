@@ -8,8 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import httpx
 
 logger = logging.getLogger(__name__)
-
-
+logging.getLogger("httpx").setLevel(logging.WARNING)
 class GraphClient:
     def __init__(
         self, tenant_id: str, client_id: str, client_secret: str, delay_ms: int = 100
@@ -102,6 +101,18 @@ class GraphClient:
             for u in all_users
             if u.get("accountEnabled") and u.get("assignedLicenses")
         ]
+
+    def get_user_id(self, user_principal_name: str) -> str | None:
+        """Get user id when knowing only userPrincipalName."""
+        try:
+            user = self._make_request(
+                f"https://graph.microsoft.com/v1.0/users/{user_principal_name}"
+            )
+            logger.info(user)
+            return user["id"]
+        except Exception as e:
+            logger.warning(f"No user {user_principal_name} found: {e}")
+            return None
 
     def get_user_drive(self, user_id: str) -> dict | None:
         """Get a user's default OneDrive drive."""
