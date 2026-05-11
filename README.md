@@ -255,19 +255,52 @@ These are matched case-insensitively against the full file path (both folder nam
 
 ## Data Model (Neo4j)
 
+### Data Model
+
 ```
 (:User)-[:OWNS]->(:Site)-[:CONTAINS]->(:File)
 (:File)-[:SHARED_WITH {riskLevel, sharingType, role, grantedBy, ...}]->(:User)
+(:File)-[:SHARED_WITH {riskLevel, sharingType, role, grantedBy, ...}]->(:Group)->[:CONTAINS*0..]->(:User)
 (:ScanRun)-[:FOUND]->(:File)
 ```
 
-- **User** — email, displayName, source
+- **User** — id, email, displayName, source
+- **Group** — id, displayName, source
 - **Site** — OneDrive or SharePoint site (siteId, name, webUrl, source)
 - **File** — driveId, itemId, path, webUrl, type (File/Folder)
 - **SHARED_WITH** — sharing relationship: sharingType, sharedWithType, role, riskLevel, createdDateTime, grantedBy, lastSeenRunId
 - **ScanRun** — collection run with runId, timestamp, and status
 
 The `grantedBy` field on `SHARED_WITH` stores the email of the user who created the sharing permission (extracted from Graph API's `grantedByV2`). This is used by the webapp to show each user only the files they personally shared.
+
+### Advanced Neo4j queries
+
+Find all files shared with external users :
+
+```cypher
+MATCH path = (f:File)-[:SHARED_WITH]->()-[:CONTAINS*0..]->(u:User {source:"External"})
+RETURN path
+```
+
+Find all files shared with external users and exclude a specific domain:
+
+```cypher
+MATCH path = (f:File)-[:SHARED_WITH]->()-[:CONTAINS*0..]->(u:User
+ {source:"External"})
+WITH path, f, collect(u) AS users
+WHERE NONE(x IN users WHERE x.email CONTAINS "@specific-domain-excluded.com")
+RETURN path
+```
+
+Find all files shared with more than 20 users:
+
+```cypher
+MATCH path = (f:File)-[r:SHARED_WITH]->()-[:CONTAINS*0..]->(u:User)
+WITH f, count(r) AS n, collect(u.email) AS users, collect(path) as paths
+WHERE n > 20
+RETURN f.path, users, n, paths
+ORDER BY n DESC
+```
 
 ## Helm Chart (Kubernetes)
 

@@ -215,7 +215,7 @@ class GraphClient:
             >>> for member in members:
             >>>     print(f"Member: {member['displayName']}")
         """
-        logger.debug(f"Retrieving members for group: {group_id}")
+        logger.debug(f"GRAPH CLIENT - Retrieving members for group: {group_id}")
         try:
             members = self._make_paged_request(
                 url=f"https://graph.microsoft.com/v1.0/groups/{group_id}/members",

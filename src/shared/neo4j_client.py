@@ -65,6 +65,16 @@ class Neo4jClient:
             {"userId": id, "email": email, "name": display_name, "source": source},
         )
 
+    def merge_group(self, id: str, display_name: str, source: str):
+        """Upsert a Group node."""
+        try:
+            self.execute(
+                "MERGE (g:Group {id: $groupId, displayName: $name}) SET g.id = $groupId, g.displayName = $name, g.source = $source",
+                {"groupId": id, "name": display_name, "source": source},
+            )
+        except Exception as e:
+            logger.error(f"NEO4J WRITE ERROR - merge_group: {str(e)}")
+
     def merge_site(self, site_id: str, name: str, web_url: str, source: str):
         """Upsert a Site node."""
         self.execute(
@@ -180,8 +190,7 @@ class Neo4jClient:
         """Upsert File, User, SHARED_WITH, CONTAINS, and FOUND in a single transaction."""
         try:
             if (shared_with_type == "Group"):
-                logger.info("NEO4J CLIENT - SHARED WITH GROUP")
-                logger.info(f"{user_id} - {user_display_name}")
+                logger.debug(f"NEO4J CLIENT - SHARED WITH GROUP: {user_id} - {user_display_name}")
 
                 self.execute(
                     """
@@ -286,7 +295,7 @@ class Neo4jClient:
         run_id: str,
     ):
         """Upsert Group, User, CONTAINS, and FOUND in a single transaction."""
-        logger.info(f"NEO4J CLIENT - GROUP MEMBERSHIP: {group_id} - {user_id} {user_display_name} {user_email} {user_source} {run_id}")
+        logger.debug(f"NEO4J CLIENT - GROUP MEMBERSHIP: {group_id} - {user_id} {user_display_name} {user_email} {user_source} {run_id}")
         try:
             self.execute(
                 """

@@ -19,6 +19,8 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+# Cache to avoid processing a group multiple times
+processed_groups = {}
 
 def _walk_drive_items(
     graph: GraphClient,
@@ -92,15 +94,36 @@ def _walk_drive_items(
                 elif sharing_type == "Link-Organization":
                     shared_email = "organization"
 
-                # DEBUG
+                # Detect invalid user or group ID which might be related with detected Entra ID objects.
                 if "id" not in shared_info:
                     logger.error(f"NO ID DETECTED: {item_path} {perm}")
-                elif not is_valid_uuid(shared_info["id"]):
-                    logger.error(f"INVALID UUID DETECTED: {item_path} {perm}")
+                    continue
+                elif len(shared_info["id"]) == 0 or not is_valid_uuid(shared_info["id"]):
+                    logger.warning(f"INVALID UUID DETECTED: {item_path} {perm}")
                     if "@" in shared_email:
-                        shared_info["id"] = graph.get_user_id(shared_email)
-                        logger.info(f"FOUND ID {shared_info['id']} for user {shared_email}")
+                        found_id = graph.get_user_id(shared_email)
+                        if len(shared_info["id"]) > 0 and is_valid_uuid(shared_info["id"]):
+                            shared_info["id"] = found_id 
+                            logger.info(f"FOUND ID {found_id} for user {shared_email}")
+                        else:
+                            continue
 
+                if shared_info["shared_with_type"] == "Group" and shared_info["shared_with"] not in ["SharePoint Administrator", "Global Administrator"]:
+                    # Create group node first without linking it to the file node
+                    group_id = shared_info["id"]
+                    neo4j.merge_group(group_id, shared_info["shared_with"], shared_info["shared_with_type"])
+                    
+                    # Walk group members and nested groups, return True if Guest or External users found
+                    if group_id in processed_groups:
+                        group_has_guests = processed_groups[group_id]["has_guests"]
+                    else:
+                        logger.debug(f"DRIVE ITEM - walk_group_members as group {group_id} not found in {processed_groups}")
+                        group_has_guests = _walk_group_members(graph, neo4j, group_id, run_id)
+                    
+                    # Increase risk level if Guest or External users found in group or nested groups
+                    if group_has_guests:
+                        risk = "HIGH"
+                    
                 neo4j.merge_permission(
                     site_id=site_id,
                     drive_id=drive_id,
@@ -121,9 +144,6 @@ def _walk_drive_items(
                     granted_by=granted_by,
                 )
                 count += 1
-
-                if shared_info["shared_with_type"] == "Group" and shared_info["shared_with"] not in ["SharePoint Administrator", "Global Administrator"]:
-                    _walk_group_members(graph, neo4j, shared_info["id"], run_id)
 
         # Recurse into folders
         if item.get("folder") and item["folder"].get("childCount", 0) > 0:
@@ -255,7 +275,7 @@ def _walk_group_members(
         visited_groups: Optional[set] = None,
         depth: int = 0,
         max_depth: int = 10,
-    ) -> List[Dict[str, Any]]:
+    ) -> bool:
         """
         Recursively retrieve all members of a group, expanding nested groups.
         
@@ -270,8 +290,7 @@ def _walk_group_members(
             max_depth: Maximum recursion depth to prevent infinite loops.
             
         Returns:
-            List[Dict[str, Any]]: List of all member objects (users and groups)
-                with id, userType, displayName, and other properties.
+            Bool: Returns if group or nested groups contains Guest.
                 
         Example:
             >>> api = SharePointGraphAPI(client)
@@ -283,16 +302,16 @@ def _walk_group_members(
         
         if group_id in visited_groups:
             logger.debug(f"Group {group_id} already processed, skipping (circular ref)")
-            return []
+            return {"has_guests": False}
         
         if depth > max_depth:
             logger.warning(
                 f"Maximum recursion depth ({max_depth}) reached for group {group_id}"
             )
-            return []
+            return {"has_guests": False}
         
         visited_groups.add(group_id)
-        all_members = []
+        has_guests = False
         
         try:
             logger.debug(f"Retrieving members for group {group_id} (depth {depth})")
@@ -305,7 +324,7 @@ def _walk_group_members(
                 member_display_name = member.get("displayName")
                 
                 if member_type == "Guest":
-                    all_members.append(member)
+                    has_guests = True
                     logger.debug(
                         f"Found guest: {member.get('displayName')} "
                         f"(depth {depth})"
@@ -314,7 +333,6 @@ def _walk_group_members(
 
 
                 elif member_type == "Member":
-                    all_members.append(member)
                     logger.debug(
                         f"Found member: {member.get('displayName')} "
                         f"(depth {depth})"
@@ -328,7 +346,7 @@ def _walk_group_members(
                     )
                     neo4j.merge_nested_group(group_id, member_id, member_display_name, "Group", run_id)
                     
-                    nested_members = _walk_group_members(
+                    nested_group_result = _walk_group_members(
                         graph,
                         neo4j,
                         member_id,
@@ -337,15 +355,22 @@ def _walk_group_members(
                         depth + 1,
                         max_depth,
                     )
-                    all_members.extend(nested_members)
-                
-            return all_members
-        
+                    has_guests = has_guests or nested_group_result["has_guests"]
+            
+            result = {
+                "has_guests": has_guests,
+            }
+            
+            # Add processed group to result to avoid processing it multiple times.
+            processed_groups[group_id] = result
+            return result
+     
         except Exception as e:
             logger.error(
                 f"Error recursively retrieving members for group {group_id}: {e}"
             )
-            return []
+            return False
+
         
 def _walk_link_permission(
     graph: GraphClient,
@@ -390,6 +415,11 @@ def _walk_link_permission(
                         sharing_type, shared_with_type, item_path
                     )
                     
+                    # Detect invalid user ID which might be related with detected Entra ID objects.
+                    if len(id) == 0 or not is_valid_uuid(id):
+                        logger.warning(f"INVALID UUID DETECTED: {item_path} {permission}")
+                        return
+                    
                     neo4j.merge_permission(
                         site_id=site_id,
                         drive_id=drive_id,
@@ -411,11 +441,35 @@ def _walk_link_permission(
                     )
                        
                 elif "group" in identity:
-                    group = identity.get("user", {})
+                    group = identity.get("group", {})
                     id = group.get("id", "")
                     email = group.get("email", "")
                     display = group.get("displayName", "Unknown Group")
                     shared_with_type = "Group"
+                    
+                    # Detect invalid group ID which might be related with detected Entra ID objects.
+                    if len(id) == 0 or not is_valid_uuid(id):
+                        logger.warning(f"INVALID UUID DETECTED: {item_path} {permission}")
+                        return
+                    
+                    # Create group node first without linking it
+                    neo4j.merge_group(id, display, shared_with_type)
+                    
+                    # Walk group members and nested groups, return True if Guest or External users found
+                    if id in processed_groups:
+                        logger.info(f"LINK - group {id} already processed")
+                        group_has_guests = processed_groups[id]["has_guests"]
+                    else:
+                        logger.info(f"LINK - walk_group_members as group {id} not found in {processed_groups}")
+                        group_has_guests = _walk_group_members(graph, neo4j, id, run_id)
+                    
+                    # Set risk level    
+                    risk = get_risk_level(
+                        sharing_type, shared_with_type, item_path
+                    )
+                    # Increase risk level if Guest or External users found in group or nested groups
+                    if group_has_guests:
+                        risk = "HIGH"
                     
                     neo4j.merge_permission(
                         site_id=site_id,
@@ -436,8 +490,6 @@ def _walk_link_permission(
                         run_id=run_id,
                         granted_by=granted_by,
                     )
-                
-                    _walk_group_members(graph, neo4j, id, run_id)
 
 
 def is_valid_uuid(uuid_to_test, version=4):
