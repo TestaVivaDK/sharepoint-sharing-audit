@@ -41,7 +41,64 @@ def _walk_drive_items(
         logger.warning(f"Could not list children of {parent_path}: {e}")
         return 0
 
+    # Process only folders and shared items to improve performance and avoid hitting Microsoft Graph service-specific throttling limits
+    items_to_process = []
     for item in children:
+        if "shared" in item: 
+            items_to_process.append(item)
+            
+        elif "folder" in item:
+            # Recurse into folder
+            item_path = (f"{parent_path}/{item['name']}" if parent_path else f"/{item['name']}")
+            if item.get("folder") and item["folder"].get("childCount", 0) > 0:
+                count += _walk_drive_items(
+                    graph,
+                    neo4j,
+                    drive_id,
+                    item["id"],
+                    item_path,
+                    site_id,
+                    owner_email,
+                    tenant_domain,
+                    run_id,
+                )
+    
+    # Batch process items to benefit from Microsoft Graph API JSON batching capability and improve performance
+    chunked_items = chunks(items_to_process, 20)
+    for chunk in chunked_items:
+        count += _batch_process_items_permissions(
+            graph,
+            neo4j,
+            chunk,
+            drive_id,
+            parent_id,
+            parent_path,
+            site_id,
+            owner_email,
+            tenant_domain,
+            run_id,
+            )
+        
+    return count
+
+
+def _batch_process_items_permissions(
+    graph: GraphClient,
+    neo4j: Neo4jClient,
+    chunk: List,
+    drive_id: str,
+    parent_id: str,
+    parent_path: str,
+    site_id: str,
+    owner_email: str,
+    tenant_domain: str,
+    run_id: str
+) -> int:
+    count = 0
+    result = graph.batch_get_item_permissions(drive_id, chunk)
+    
+    for batch_item in result.values():
+        item = batch_item["data"]
         item_path = (
             f"{parent_path}/{item['name']}" if parent_path else f"/{item['name']}"
         )
@@ -49,7 +106,7 @@ def _walk_drive_items(
         web_url = item.get("webUrl", "")
 
         try:
-            permissions = graph.get_item_permissions(drive_id, item["id"])
+            permissions = batch_item["permissions"]
         except Exception as e:
             logger.warning(f"Could not get permissions for {item_path}: {e}")
             permissions = []
@@ -145,19 +202,6 @@ def _walk_drive_items(
                 )
                 count += 1
 
-        # Recurse into folders
-        if item.get("folder") and item["folder"].get("childCount", 0) > 0:
-            count += _walk_drive_items(
-                graph,
-                neo4j,
-                drive_id,
-                item["id"],
-                item_path,
-                site_id,
-                owner_email,
-                tenant_domain,
-                run_id,
-            )
 
         graph.throttle()
 
@@ -499,3 +543,9 @@ def is_valid_uuid(uuid_to_test, version=4):
     except ValueError:
         return False
     return True
+
+
+def chunks(l, n):
+    """Yield successive n-sized chunks from l."""
+    for i in range(0, len(l), n):
+        yield l[i:i + n]

@@ -52,6 +52,48 @@ class GraphClient:
                     continue
                 raise
         return {}
+    
+    def _make_batch_request(
+        self, requests =List[Dict]
+    ) -> dict:
+        """Make a POST request to the Graph API batch endpoint."""
+        url = "https://graph.microsoft.com/v1.0/$batch"
+        headers = {"Authorization": f"Bearer {self._get_token()}"}
+        batch_request_body = {"requests": requests }
+        
+        for attempt in range(4):
+            try:
+                resp = httpx.post(url, headers=headers, json=batch_request_body, timeout=30)
+                resp.raise_for_status()
+                resp_data = resp.json()
+                
+                # Requests in a batch are evaluated individually against the applicable throttling limits
+                # If any request exceeds the limits, it fails with a status of 429
+                retry_after = 0
+                for r in resp_data["responses"]:
+                    if r["status"] == 429:
+                        if "Retry-After" in r["headers"]:
+                            retry_after = max(retry_after, int(r["headers"]["Retry-After"]))
+                        else:
+                            retry_after = max(retry_after, 5**attempt)
+                    elif attempt < 3 and r["status"] >= 500:
+                        retry_after = max(retry_after, 5**attempt)
+
+                if retry_after > 0:
+                    logger.warning(f"Rate limited. Waiting {retry_after}s...")
+                    time.sleep(retry_after)
+                    continue
+
+                return resp_data
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 401:
+                    self._token = None
+                    continue
+                if attempt < 3 and e.response.status_code >= 500:
+                    time.sleep(2**attempt)
+                    continue
+                raise
+        return {}
 
     def _make_paged_request(self, url: str, params: dict | None = None) -> list[dict]:
         """Follow @odata.nextLink pagination."""
@@ -158,6 +200,35 @@ class GraphClient:
                 or p.get("inheritedFrom", {}).get("path")
             )
         ]
+    
+    def batch_get_item_permissions(self, drive_id: str, items: list[dict]) -> Dict:
+        """Get non-inherited permissions for a batch of drive item."""
+        # Prepare MS Graph batch query
+        requests = []
+        results = {}
+        for item in items:
+            item_id = item["id"]
+            requests.append({
+                "id": item_id,
+                "method": "GET",
+                "url": f"drives/{drive_id}/items/{item_id}/permissions"
+            })
+            results[item_id] = {"data": item}
+
+        data = self._make_batch_request(requests)
+
+        for resp in data["responses"]:
+            resp_item_id = resp["id"]
+            results[resp_item_id]["permissions"] = [
+                p
+                for p in resp["body"]["value"]
+                if not (
+                    p.get("inheritedFrom", {}).get("driveId")
+                    or p.get("inheritedFrom", {}).get("path")
+                )
+            ]
+        logger.debug(results)
+        return results
 
     def seed_delta_link(self, drive_id: str) -> str:
         """Get initial delta link for a drive without enumerating items."""
