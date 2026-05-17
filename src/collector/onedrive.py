@@ -15,7 +15,7 @@ from shared.classify import (
     get_granted_by,
 )
 from collector.delta import delta_scan_drive
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, NoReturn
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +46,10 @@ def _walk_drive_items(
     for item in children:
         if "shared" in item: 
             items_to_process.append(item)
-            
-        elif "folder" in item:
+            count += 1
+
+        # A folder need to be walked but can also be shared
+        if "folder" in item:
             # Recurse into folder
             item_path = (f"{parent_path}/{item['name']}" if parent_path else f"/{item['name']}")
             if item.get("folder") and item["folder"].get("childCount", 0) > 0:
@@ -62,11 +64,12 @@ def _walk_drive_items(
                     tenant_domain,
                     run_id,
                 )
+        
     
     # Batch process items to benefit from Microsoft Graph API JSON batching capability and improve performance
     chunked_items = chunks(items_to_process, 20)
     for chunk in chunked_items:
-        count += _batch_process_items_permissions(
+        _batch_process_items_permissions(
             graph,
             neo4j,
             chunk,
@@ -93,8 +96,7 @@ def _batch_process_items_permissions(
     owner_email: str,
     tenant_domain: str,
     run_id: str
-) -> int:
-    count = 0
+) -> NoReturn:
     result = graph.batch_get_item_permissions(drive_id, chunk)
     
     for batch_item in result.values():
@@ -200,12 +202,7 @@ def _batch_process_items_permissions(
                     run_id=run_id,
                     granted_by=granted_by,
                 )
-                count += 1
 
-
-        graph.throttle()
-
-    return count
 
 
 def collect_onedrive_user(
