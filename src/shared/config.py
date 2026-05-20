@@ -38,7 +38,7 @@ class CollectorConfig:
         default_factory=lambda: int(os.environ.get("FULL_SCAN_INTERVAL_DAYS", "7"))
     )
     ignore_sharepoint_groups: bool = field(
-        default_factory=lambda: os.environ.get("IGNORE_SHAREPOINT_GROUPS", False).lower()
+        default_factory=lambda: os.environ.get("IGNORE_SHAREPOINT_GROUPS", "").lower()
         in ("1", "true", "yes")
     )
 
