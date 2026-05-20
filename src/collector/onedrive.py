@@ -32,6 +32,7 @@ def _walk_drive_items(
     owner_email: str,
     tenant_domain: str,
     run_id: str,
+    ignore_sharepoint_groups: bool = False
 ) -> int:
     """Recursively walk drive items, collect permissions, write to Neo4j. Returns count."""
     count = 0
@@ -63,6 +64,7 @@ def _walk_drive_items(
                     owner_email,
                     tenant_domain,
                     run_id,
+                    ignore_sharepoint_groups,
                 )
         
     
@@ -80,6 +82,7 @@ def _walk_drive_items(
             owner_email,
             tenant_domain,
             run_id,
+            ignore_sharepoint_groups,
             )
         
     return count
@@ -95,7 +98,8 @@ def _batch_process_items_permissions(
     site_id: str,
     owner_email: str,
     tenant_domain: str,
-    run_id: str
+    run_id: str,
+    ignore_sharepoint_groups: bool = False,
 ) -> NoReturn:
     result = graph.batch_get_item_permissions(drive_id, chunk)
     
@@ -144,6 +148,10 @@ def _batch_process_items_permissions(
 
                 # Skip owner's own "owner" permission
                 if role == "Owner" and shared_info["shared_with"] == owner_email:
+                    continue
+
+                # Skip SharePoint default groups
+                if shared_info["shared_with_type"] == "sharePointGroup" and ignore_sharepoint_groups:
                     continue
 
                 # Determine the "shared with" email for the User node

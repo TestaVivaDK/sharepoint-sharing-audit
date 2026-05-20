@@ -18,6 +18,7 @@ def collect_sharepoint_sites(
     run_id: str,
     tenant_domain: str,
     is_full: bool = True,
+    ignore_sharepoint_groups: bool = False
 ) -> int:
     """Collect all sharing permissions across SharePoint sites. Returns total item count."""
     sites = graph.get_all_sites()
@@ -69,6 +70,7 @@ def collect_sharepoint_sites(
                     owner_email,
                     tenant_domain,
                     run_id,
+                    ignore_sharepoint_groups,
                 )
                 try:
                     link = graph.seed_delta_link(drive_id)
@@ -107,6 +109,7 @@ def collect_sharepoint_sites(
                                 owner_email,
                                 tenant_domain,
                                 run_id,
+                                ignore_sharepoint_groups
                             )
                             try:
                                 link = graph.seed_delta_link(drive_id)
@@ -129,6 +132,7 @@ def collect_sharepoint_sites(
                         owner_email,
                         tenant_domain,
                         run_id,
+                        ignore_sharepoint_groups
                     )
                     try:
                         link = graph.seed_delta_link(drive_id)

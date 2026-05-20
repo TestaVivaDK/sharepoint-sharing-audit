@@ -152,10 +152,9 @@ def get_shared_with_info(permission: dict, tenant_domain: str) -> dict:
         }
 
     granted = permission.get("grantedToV2", {})
-    group = granted.get("group", {})
-    siteGroup = granted.get("siteGroup", {})
-
-    if "displayName" in group:
+    
+    group = granted.get("group")
+    if group:
         return {
             "id": group.get("id", ""),
             "displayName":group.get("displayName", ""),
@@ -163,15 +162,17 @@ def get_shared_with_info(permission: dict, tenant_domain: str) -> dict:
             "shared_with": group.get("displayName", "Unknown Group"),
             "shared_with_type": "Group",
         }
-    # elif "displayName" in siteGroup:
-    #     return {
-    #         "id": siteGroup.get("id", ""),
-    #         "displayName":siteGroup.get("displayName", ""),
-    #         "loginName": siteGroup.get("loginName", "").lower(),
-    #         "shared_with": siteGroup.get("displayName", "Unknown Group"),
-    #         "shared_with_type": "Group",
-    #     }
-
+    
+    site_group = granted.get("siteGroup")
+    if site_group:
+        return {
+            "id": site_group.get("id", ""),
+            "displayName":site_group.get("displayName", ""),
+            "loginName": site_group.get("loginName", "").lower(),
+            "shared_with": site_group.get("displayName", "Unknown Group"),
+            "shared_with_type": "sharePointGroup",
+        }
+    
     user = granted.get("user") or permission.get("grantedTo", {}).get("user")
     if user:
         id = user.get("id", "")

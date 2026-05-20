@@ -92,8 +92,13 @@ def main():
         # SharePoint audit
         if os.environ.get("SKIP_SHAREPOINT", "").lower() not in ("1", "true", "yes"):
             logger.info("=== Starting SharePoint Audit ===")
+
+            ignore_sharepoint_groups = config.ignore_sharepoint_groups
+            if ignore_sharepoint_groups:
+                logger.info("=== Skipping SharePoint groups. Only Microsoft Entra groups will be collected ===")
+
             sp_count = collect_sharepoint_sites(
-                graph, neo4j, run_id, tenant_domain, is_full
+                graph, neo4j, run_id, tenant_domain, is_full, ignore_sharepoint_groups
             )
             total += sp_count
         else:
