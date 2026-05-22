@@ -142,7 +142,8 @@ The frontend dev server (Vite) proxies `/api` requests to the backend on port 80
 | `DELAY_MS` | `100` | Milliseconds between API calls |
 | `USERS_TO_AUDIT` | all users | Comma-separated UPNs to audit (e.g. `user@domain.com`) |
 | `SKIP_SHAREPOINT` | `false` | Set to `true` to skip SharePoint sites |
-| `IGNORE_SHAREPOINT_GROUPS` | `false` Set to `true` to skip SharePoint groups and to collect only Microsoft Entra groups |
+| `IGNORE_SHAREPOINT_GROUPS` | `false` | Set to `true` to skip SharePoint groups and to collect only Microsoft Entra groups |
+| `LOG_LEVEL` | `INFO` | Collector log level |
 
 ### Reporter
 

@@ -10,7 +10,8 @@ from collector.graph_client import GraphClient
 from collector.onedrive import collect_onedrive_user
 from collector.sharepoint import collect_sharepoint_sites
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(level=log_level, format="%(asctime)s %(levelname)s %(filename)s %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -44,7 +45,6 @@ def _should_full_scan(config: CollectorConfig, neo4j: Neo4jClient) -> bool:
 
 def main():
     config = CollectorConfig()
-
     logger.info("Connecting to Neo4j...")
     neo4j = Neo4jClient(config.neo4j.uri, config.neo4j.user, config.neo4j.password)
     neo4j.init_schema()
@@ -69,25 +69,28 @@ def main():
 
     try:
         # OneDrive audit
-        logger.info("=== Starting OneDrive Audit ===")
-        users = graph.get_users()
-        logger.info(f"Found {len(users)} users.")
+        if os.environ.get("SKIP_ONEDRIVE", "").lower() not in ("1", "true", "yes"):
+            logger.info("=== Starting OneDrive Audit ===")
+            users = graph.get_users()
+            logger.info(f"Found {len(users)} users.")
 
-        users_filter = os.environ.get("USERS_TO_AUDIT", "")
-        if users_filter:
-            filter_upns = [u.strip() for u in users_filter.split(",")]
-            users = [u for u in users if u.get("userPrincipalName") in filter_upns]
-            logger.info(f"Filtered to {len(users)} users: {filter_upns}")
+            users_filter = os.environ.get("USERS_TO_AUDIT", "")
+            if users_filter:
+                filter_upns = [u.strip() for u in users_filter.split(",")]
+                users = [u for u in users if u.get("userPrincipalName") in filter_upns]
+                logger.info(f"Filtered to {len(users)} users: {filter_upns}")
 
-        for i, user in enumerate(users, 1):
-            upn = user.get("userPrincipalName", "?")
-            logger.info(
-                f"[{i}/{len(users)}] OneDrive: {user.get('displayName', '?')} ({upn})"
-            )
-            count = collect_onedrive_user(
-                graph, neo4j, user, run_id, tenant_domain, is_full
-            )
-            total += count
+            for i, user in enumerate(users, 1):
+                upn = user.get("userPrincipalName", "?")
+                logger.info(
+                    f"[{i}/{len(users)}] OneDrive: {user.get('displayName', '?')} ({upn})"
+                )
+                count = collect_onedrive_user(
+                    graph, neo4j, user, run_id, tenant_domain, is_full
+                )
+                total += count
+        else:
+            logger.info("Skipping OneDrive audit")
 
         # SharePoint audit
         if os.environ.get("SKIP_SHAREPOINT", "").lower() not in ("1", "true", "yes"):
