@@ -52,6 +52,9 @@ class ReporterConfig:
     output_dir: str = field(
         default_factory=lambda: os.environ.get("REPORT_OUTPUT_DIR", "./reports")
     )
+    custom_neo4j_where_filter: str = field(
+        default_factory=lambda: os.environ.get("CUSTOM_NEO4J_WHERE_FILTER", "")
+    )
     webapp_url: str = field(default_factory=lambda: os.environ.get("WEBAPP_URL", ""))
 
 

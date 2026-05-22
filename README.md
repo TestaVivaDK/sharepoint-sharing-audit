@@ -154,6 +154,7 @@ The frontend dev server (Vite) proxies `/api` requests to the backend on port 80
 | `NEO4J_PASSWORD` | required | Neo4j password |
 | `TENANT_DOMAIN` | — | Your tenant domain (e.g. `contoso.com`) for internal/external classification |
 | `REPORT_OUTPUT_DIR` | `./reports` | Directory for generated reports |
+| `CUSTOM_NEO4J_WHERE_FILTER` | `Optional variable` | Custom NEO4J WHERE clause to select only a subset of data to be included in the reports.  |
 
 ### Webapp
 
