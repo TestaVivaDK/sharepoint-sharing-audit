@@ -52,10 +52,13 @@ def collect_sharepoint_sites(
             # Determine owner (best effort)
             owner_email = ""
             owner = drive.get("owner", {})
-            if owner.get("user", {}).get("email"):
+            if owner.get("user", {}).get("email") and owner.get("user", {}).get("id"):
                 owner_email = owner["user"]["email"]
                 neo4j.merge_user(
-                    owner_email, owner["user"].get("displayName", ""), "internal"
+                    id=owner["user"].get("id"),
+                    email=owner_email, 
+                    display_name=owner["user"].get("displayName", ""), 
+                    source="internal"
                 )
                 neo4j.merge_owns(owner_email, site_id)
 
