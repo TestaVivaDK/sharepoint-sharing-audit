@@ -71,6 +71,69 @@ LOW_RISK_EXTENSIONS = {
 }
 
 
+def determine_user_source(user: dict, tenant_domain: str = "") -> str:
+    """Determine user classification (Internal/External/Guest) per Microsoft Entra ID standards.
+    
+    Classification is based on Microsoft Graph userType field and identities array.
+    Per: https://learn.microsoft.com/en-us/entra/external-id/user-properties
+    
+    Args:
+        user: Graph API user object with fields {id, userType, identities, email, userPrincipalName}.
+        tenant_domain: Deprecated (kept for backward compatibility, not used in classification).
+        
+    Returns:
+        "Internal": userType == "Member"
+        "External": userType == "Guest" AND has identity with issuer == "ExternalAzureAD"
+        "Guest": userType == "Guest" AND does NOT have ExternalAzureAD issuer
+        "Unknown": userType missing or unrecognized
+        
+    Example:
+        >>> # Internal user
+        >>> user = {"id": "123", "email": "user@example.com", "userType": "Member", "identities": []}
+        >>> determine_user_source(user)
+        "Internal"
+        
+        >>> # External B2B guest
+        >>> guest_user = {
+        ...     "id": "456",
+        ...     "email": "guest@external.com",
+        ...     "userType": "Guest",
+        ...     "identities": [{"issuer": "ExternalAzureAD", "issuerAssignedId": "guest@external.com"}]
+        ... }
+        >>> determine_user_source(guest_user)
+        "External"
+        
+        >>> # Guest (non-B2B)
+        >>> guest_user = {
+        ...     "id": "789",
+        ...     "email": "guest@gmail.com",
+        ...     "userType": "Guest",
+        ...     "identities": []
+        ... }
+        >>> determine_user_source(guest_user)
+        "Guest"
+    """
+    # Primary: check userType field
+    user_type = user.get("userType", "").strip()
+    
+    # Internal users
+    if user_type == "Member":
+        return "Internal"
+    
+    # Guest or external users - check identity sources
+    if user_type == "Guest":
+        # Check if this is an ExternalAzureAD (B2B) identity
+        identities = user.get("identities", [])
+        for identity in identities:
+            if identity.get("issuer") == "ExternalAzureAD":
+                return "External"
+        # Guest without ExternalAzureAD issuer
+        return "Guest"
+    
+    # Unrecognized userType
+    return "Unknown"
+
+
 def get_sharing_type(permission: dict) -> str:
     """Classify a Graph API permission object into a sharing type string."""
     if "link" in permission:

@@ -7,6 +7,7 @@ import httpx
 from collector.graph_client import GraphClient
 from shared.neo4j_client import Neo4jClient
 from collector.onedrive import _walk_drive_items
+from collector.user_cache import UserCache
 from collector.delta import delta_scan_drive
 
 logger = logging.getLogger(__name__)
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 def collect_sharepoint_sites(
     graph: GraphClient,
+    user_cache: UserCache,
     neo4j: Neo4jClient,
     run_id: str,
     tenant_domain: str,
@@ -65,6 +67,7 @@ def collect_sharepoint_sites(
             if is_full:
                 count = _walk_drive_items(
                     graph,
+                    user_cache,
                     neo4j,
                     drive_id,
                     "root",
@@ -88,6 +91,7 @@ def collect_sharepoint_sites(
                     try:
                         count = delta_scan_drive(
                             graph,
+                            user_cache,
                             neo4j,
                             drive_id,
                             delta_link,
@@ -104,6 +108,7 @@ def collect_sharepoint_sites(
                             )
                             count = _walk_drive_items(
                                 graph,
+                                user_cache,
                                 neo4j,
                                 drive_id,
                                 "root",
@@ -127,6 +132,7 @@ def collect_sharepoint_sites(
                     logger.info(f"  No delta link for drive {drive_id} — full walk")
                     count = _walk_drive_items(
                         graph,
+                        user_cache,
                         neo4j,
                         drive_id,
                         "root",

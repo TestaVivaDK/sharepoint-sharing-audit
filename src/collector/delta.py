@@ -4,12 +4,18 @@ import logging
 
 from collector.graph_client import GraphClient
 from shared.neo4j_client import Neo4jClient
+from collector.user_cache import UserCache
+from collector.permission_processors import (
+    process_user_permission,
+    process_group_permission,
+    process_link_permission,
+)
 from shared.classify import (
     get_sharing_type,
-    get_shared_with_info,
     get_risk_level,
     get_permission_role,
     get_granted_by,
+    determine_user_source,
 )
 
 logger = logging.getLogger(__name__)
@@ -38,6 +44,7 @@ def _item_path_from_delta(item: dict) -> str:
 
 def delta_scan_drive(
     graph: GraphClient,
+    user_cache: UserCache,
     neo4j: Neo4jClient,
     drive_id: str,
     delta_link: str,
@@ -79,41 +86,39 @@ def delta_scan_drive(
 
         for perm in permissions:
             sharing_type = get_sharing_type(perm)
-            shared_info = get_shared_with_info(perm, tenant_domain)
             role = get_permission_role(perm)
             granted_by = get_granted_by(perm) or owner_email
-            risk = get_risk_level(
-                sharing_type, shared_info["shared_with_type"], item_path
-            )
-
-            if role == "Owner" and shared_info["shared_with"] == owner_email:
-                continue
-
-            shared_email = shared_info["shared_with"]
-            if shared_info["shared_with_type"] == "Anonymous":
-                shared_email = "anonymous"
-            elif sharing_type == "Link-Organization":
-                shared_email = "organization"
-
-            neo4j.merge_permission(
-                site_id=site_id,
-                drive_id=drive_id,
-                item_id=item_id,
-                item_path=item_path,
-                web_url=web_url,
-                file_type=item_type,
-                user_email=shared_email,
-                user_display_name=shared_info["shared_with"],
-                user_source=shared_info["shared_with_type"],
-                sharing_type=sharing_type,
-                shared_with_type=shared_info["shared_with_type"],
-                role=role,
-                risk_level=risk,
-                created_date_time=perm.get("createdDateTime", ""),
-                run_id=run_id,
-                granted_by=granted_by,
-            )
-            count += 1
+            
+            # Build item metadata dict for permission processors
+            item_metadata = {
+                "site_id": site_id,
+                "drive_id": drive_id,
+                "item_id": item_id,
+                "item_path": item_path,
+                "web_url": web_url,
+                "file_type": item_type,
+                "sharing_type": sharing_type,
+                "role": role,
+                "granted_by": granted_by,
+                "tenant_domain": tenant_domain,
+            }
+            
+            # Dispatch to appropriate processor based on permission type
+            if "link" in perm:
+                process_link_permission(perm, graph, user_cache, neo4j, item_metadata, run_id)
+                count += 1
+            
+            elif perm.get("grantedToV2", {}).get("group") or perm.get("grantedToV2", {}).get("siteGroup"):
+                process_group_permission(perm, graph, user_cache, neo4j, item_metadata, run_id)
+                count += 1
+            
+            elif perm.get("grantedToV2", {}).get("user") or perm.get("grantedTo", {}).get("user"):
+                # Skip owner's own "owner" permission
+                user_dict = perm.get("grantedToV2", {}).get("user") or perm.get("grantedTo", {}).get("user")
+                user_email = user_dict.get("email", "")
+                if not (role == "Owner" and user_email == owner_email):
+                    process_user_permission(perm, graph, user_cache, neo4j, item_metadata, run_id)
+                    count += 1
 
     # Save the new delta link for next scan
     if new_delta_link:

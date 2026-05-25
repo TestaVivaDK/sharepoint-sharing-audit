@@ -250,7 +250,54 @@ class GraphClient:
 
         logger.debug(results)
         return results
-
+    def batch_get_users(self, user_ids: list[str]) -> Dict[str, Dict[str, Any]]:
+        """Batch-fetch user details by user ID.
+        
+        Args:
+            user_ids: List of user IDs to fetch (max 20 per batch).
+            
+        Returns:
+            Dict mapping user_id -> {id, email, displayName, userType, ...}.
+            Missing or inaccessible users are excluded from result.
+        """
+        if not user_ids:
+            return {}
+        
+        requests = []
+        results = {}
+        
+        # Batch up to 20 users per request
+        for user_id in user_ids:
+            requests.append({
+                "id": user_id,
+                "method": "GET",
+                "url": f"users/{user_id}?$select=id,mail,email,userPrincipalName,displayName,userType,identities"
+            })
+            results[user_id] = None
+        
+        data = self._make_batch_request(requests)
+        
+        for resp in data.get("responses", []):
+            user_id = resp["id"]
+            if resp["status"] == 200:
+                user_data = resp.get("body", {})
+                results[user_id] = {
+                    "id": user_data.get("id", ""),
+                    "email": user_data.get("mail") or user_data.get("email", ""),
+                    "userPrincipalName": user_data.get("userPrincipalName", ""),
+                    "displayName": user_data.get("displayName", ""),
+                    "userType": user_data.get("userType", "Member"),
+                    "identities": user_data.get("identities", []),
+                }
+            elif resp["status"] == 404:
+                logger.debug(f"User {user_id} not found in Graph API")
+                results[user_id] = None
+            else:
+                logger.warning(f"Error fetching user {user_id}: status {resp['status']}")
+                results[user_id] = None
+        
+        # Return only successfully fetched users
+        return {uid: data for uid, data in results.items() if data is not None}
     def seed_delta_link(self, drive_id: str) -> str:
         """Get initial delta link for a drive without enumerating items."""
         data = self._make_request(
@@ -311,7 +358,7 @@ class GraphClient:
         try:
             members = self._make_paged_request(
                 url=f"https://graph.microsoft.com/v1.0/groups/{group_id}/members",
-                params={"$select": "id,mail,userPrincipalName,displayName,userType"}
+                params={"$select": "id,mail,userPrincipalName,displayName,userType,identities"}
             )
             logger.debug(f"Retrieved {len(members)} members for group {group_id}")
             return members
@@ -344,7 +391,7 @@ class GraphClient:
         try:
             owners = self._make_paged_request(
                 url=f"https://graph.microsoft.com/v1.0/groups/{group_id}/owners",
-                params={"$select": "id,mail,userPrincipalName,displayName,userType"}
+                params={"$select": "id,mail,userPrincipalName,displayName,userType,identities"}
             )
             logger.debug(f"Retrieved {len(owners)} owner(s) for group {group_id}")
             return owners

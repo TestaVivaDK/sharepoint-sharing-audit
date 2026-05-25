@@ -7,6 +7,7 @@ from datetime import datetime, timezone, timedelta
 from shared.config import CollectorConfig
 from shared.neo4j_client import Neo4jClient
 from collector.graph_client import GraphClient
+from collector.user_cache import UserCache
 from collector.onedrive import collect_onedrive_user
 from collector.sharepoint import collect_sharepoint_sites
 
@@ -60,6 +61,10 @@ def main():
     tenant_domain = graph.get_tenant_domain()
     logger.info(f"Tenant domain: {tenant_domain}")
 
+    # Initialize user cache for efficient lookups across all permission processing
+    user_cache = UserCache(graph)
+    logger.info("User cache initialized")
+
     is_full = _should_full_scan(config, neo4j)
     scan_type = "full" if is_full else "delta"
     run_id = neo4j.create_scan_run(scan_type)
@@ -86,7 +91,7 @@ def main():
                     f"[{i}/{len(users)}] OneDrive: {user.get('displayName', '?')} ({upn})"
                 )
                 count = collect_onedrive_user(
-                    graph, neo4j, user, run_id, tenant_domain, is_full
+                    graph, user_cache, neo4j, user, run_id, tenant_domain, is_full
                 )
                 total += count
         else:
@@ -101,7 +106,7 @@ def main():
                 logger.info("=== Skipping SharePoint groups. Only Microsoft Entra groups will be collected ===")
 
             sp_count = collect_sharepoint_sites(
-                graph, neo4j, run_id, tenant_domain, is_full, ignore_sharepoint_groups
+                graph, user_cache, neo4j, run_id, tenant_domain, is_full, ignore_sharepoint_groups
             )
             total += sp_count
         else:
