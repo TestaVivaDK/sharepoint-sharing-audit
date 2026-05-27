@@ -8,6 +8,7 @@ from collector.graph_client import GraphClient
 from shared.neo4j_client import Neo4jClient
 from collector.onedrive import _walk_drive_items
 from collector.user_cache import UserCache
+from collector.neo4j_user_node import Neo4jUserNode
 from collector.delta import delta_scan_drive
 
 logger = logging.getLogger(__name__)
@@ -56,13 +57,9 @@ def collect_sharepoint_sites(
             owner = drive.get("owner", {})
             if owner.get("user", {}).get("email") and owner.get("user", {}).get("id"):
                 owner_email = owner["user"]["email"]
-                neo4j.merge_user(
-                    id=owner["user"].get("id"),
-                    email=owner_email, 
-                    display_name=owner["user"].get("displayName", ""), 
-                    source="internal"
-                )
-                neo4j.merge_owns(owner_email, site_id)
+                # Create user node and establish ownership
+                owner_user = Neo4jUserNode(owner["user"], source="Internal")  # Drive owner is always internal
+                owner_user.merge_as_site_owner(neo4j, site_id)
 
             if is_full:
                 count = _walk_drive_items(

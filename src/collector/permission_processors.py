@@ -6,10 +6,12 @@ import uuid
 from collector.graph_client import GraphClient
 from shared.neo4j_client import Neo4jClient
 from collector.user_cache import UserCache
+from collector.neo4j_user_node import Neo4jUserNode
 from shared.classify import (
     get_risk_level,
     determine_user_source,
 )
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +30,6 @@ def is_valid_uuid(uuid_to_test: str, version: int = 4) -> bool:
 
 def process_user_permission(
     permission: dict,
-    graph: GraphClient,
     user_cache: UserCache,
     neo4j: Neo4jClient,
     item_metadata: dict,
@@ -38,7 +39,6 @@ def process_user_permission(
     
     Args:
         permission: Permission dict from Graph API (grantedToV2.user or grantedTo.user).
-        graph: GraphClient instance.
         user_cache: UserCache for efficient user lookups.
         neo4j: Neo4jClient for database operations.
         item_metadata: Dict with {site_id, drive_id, item_id, item_path, web_url, file_type, 
@@ -46,56 +46,55 @@ def process_user_permission(
         run_id: Audit run ID.
     """
     # Extract user from permission
+    logger.info("PROCESS USER PERMISSION")
     user_dict = permission.get("grantedToV2", {}).get("user") or permission.get("grantedTo", {}).get("user")
     if not user_dict:
         return
     
     user_id = user_dict.get("id", "")
-    email = user_dict.get("email", "")
-    display_name = user_dict.get("displayName", "Unknown User")
+    # email = user_dict.get("email", "")
+    # display_name = user_dict.get("displayName", "Unknown User")
     
     if not user_id or not is_valid_uuid(user_id):
-        logger.warning(f"Invalid user ID in permission: {user_id} for {item_metadata['item_path']}")
+        logger.warning(f"Invalid user ID in permission: {user_dict} for {item_metadata['item_path']}")
         return
     
-    # Fetch full user data via cache to get userType
+    # Fetch full user data via cache to get userType and identities
     user_data = user_cache.get(user_id)
-    if not user_data:
-        # Lazy-load if cache is empty
-        user_data = {
-            "id": user_id,
-            "email": email,
-            "displayName": display_name,
-            "userType": "Member",  # Default if not available
-        }
+    # if not user_data:
+    #     # Lazy-load if cache is empty
+    #     user_data = {
+    #         "id": user_id,
+    #         "email": email,
+    #         "displayName": display_name,
+    #         "userType": "Member",
+    #         "identities": [],
+    #     }
     
-    # Determine source using userType
-    source = determine_user_source(user_data, item_metadata.get("tenant_domain", ""))
+    # Create Neo4jUserNode for processing
+    try:
+        user_node = Neo4jUserNode(user_data, tenant_domain=item_metadata.get("tenant_domain", ""))
+    except ValueError as e:
+        logger.warning(f"Invalid user for permission: {e}")
+        return
     
     # Risk assessment
     risk = get_risk_level(
         item_metadata["sharing_type"],
-        source,
+        user_node.source,
         item_metadata["item_path"]
     )
     
-    # Merge user node
-    neo4j.merge_user(user_id, email or display_name, display_name, source)
-    
-    # Merge permission
-    neo4j.merge_permission(
+    # Merge as file permission recipient
+    user_node.merge_as_file_permission_recipient(
+        neo4j,
         site_id=item_metadata["site_id"],
         drive_id=item_metadata["drive_id"],
         item_id=item_metadata["item_id"],
         item_path=item_metadata["item_path"],
         web_url=item_metadata["web_url"],
         file_type=item_metadata["file_type"],
-        user_email=email or display_name,
-        user_id=user_id,
-        user_display_name=display_name,
-        user_source=source,
         sharing_type=item_metadata["sharing_type"],
-        shared_with_type=source,
         role=item_metadata["role"],
         risk_level=risk,
         created_date_time=permission.get("createdDateTime", ""),
@@ -126,17 +125,27 @@ def process_group_permission(
                                    sharing_type, role, run_id, granted_by}.
         run_id: Audit run ID.
     """
-    # Defer import to avoid circular dependency
-    from collector.onedrive import _walk_group_members
     
     # Extract group from permission
-    group_dict = permission.get("grantedToV2", {}).get("group") or permission.get("grantedToV2", {}).get("siteGroup")
-    if not group_dict:
-        return
-    
+    logger.info("PROCESS GROUP PERMISSION")
+
+    granted = permission.get("grantedToV2", {})
+    group_dict = granted.get("group") or granted.get("siteGroup")
     group_id = group_dict.get("id", "")
-    group_name = group_dict.get("displayName", "Unknown Group")
+    group_name = group_dict.get("displayName", "")
     group_type = "siteGroup" if "siteGroup" in permission.get("grantedToV2", {}) else "Group"
+
+    # if(ignore_sharepoint_groups):
+    #     group_dict = perm.get("grantedToV2", {}).get("group")
+    # else:
+    #     group_dict = perm.get("grantedToV2", {}).get("group") or perm.get("grantedToV2", {}).get("siteGroup")
+    
+    if (not group_dict) or group_name  in ["SharePoint Administrator", "Global Administrator"]: #and not (group_dict.get("displayName", "").lower() in ["sharepoint"] if ignore_sharepoint_groups else False):
+        return
+ 
+
+    #roup_name = group_dict.get("displayName", "Unknown Group")
+    
     
     if not group_id or not is_valid_uuid(group_id):
         logger.warning(f"Invalid group ID in permission: {group_id} for {item_metadata['item_path']}")
@@ -207,9 +216,7 @@ def process_link_permission(
                                    sharing_type, role, run_id, granted_by, tenant_domain}.
         run_id: Audit run ID.
     """
-    # Defer import to avoid circular dependency
-    from collector.onedrive import _walk_group_members
-    
+    logger.info("PROCESS LINK PERMISSION")
     link = permission.get("link", {})
     scope = link.get("scope", "")
     
@@ -258,7 +265,6 @@ def process_link_permission(
             run_id=run_id,
             granted_by=item_metadata.get("granted_by", ""),
         )
-        return
     
     # Handle specific people links (scope=="users")
     identities = permission.get("grantedToIdentitiesV2", [])
@@ -267,43 +273,44 @@ def process_link_permission(
         if "user" in identity:
             user_dict = identity.get("user", {})
             user_id = user_dict.get("id", "")
-            email = user_dict.get("email", "")
-            display_name = user_dict.get("displayName", "Unknown User")
+            # email = user_dict.get("email", "")
+            # display_name = user_dict.get("displayName", "Unknown User")
             
             if not user_id or not is_valid_uuid(user_id):
                 logger.warning(f"Invalid user ID in link identity: {user_id} for {item_metadata['item_path']}")
                 continue
             
-            # Fetch full user data via cache to get userType
+            # Fetch full user data via cache to get userType and identities
             user_data = user_cache.get(user_id)
-            if not user_data:
-                user_data = {
-                    "id": user_id,
-                    "email": email,
-                    "displayName": display_name,
-                    "userType": "Member",
-                }
+            # if not user_data:
+            #     user_data = {
+            #         "id": user_id,
+            #         "email": email,
+            #         "displayName": display_name,
+            #         "userType": "Member",
+            #         "identities": [],
+            #     }
             
-            source = determine_user_source(user_data, item_metadata.get("tenant_domain", ""))
-            risk = get_risk_level(item_metadata["sharing_type"], source, item_metadata["item_path"])
+            # Create Neo4jUserNode for processing
+            try:
+                user_node = Neo4jUserNode(user_data, tenant_domain=item_metadata.get("tenant_domain", ""))
+            except ValueError as e:
+                logger.warning(f"Invalid user in link identity: {e}")
+                continue
             
-            # Merge user node
-            neo4j.merge_user(user_id, email or display_name, display_name, source)
+            # Risk assessment
+            risk = get_risk_level(item_metadata["sharing_type"], user_node.source, item_metadata["item_path"])
             
-            # Merge permission
-            neo4j.merge_permission(
+            # Merge as link recipient
+            user_node.merge_as_link_recipient(
+                neo4j,
                 site_id=item_metadata["site_id"],
                 drive_id=item_metadata["drive_id"],
                 item_id=item_metadata["item_id"],
                 item_path=item_metadata["item_path"],
                 web_url=item_metadata["web_url"],
                 file_type=item_metadata["file_type"],
-                user_email=email or display_name,
-                user_id=user_id,
-                user_display_name=display_name,
-                user_source=source,
                 sharing_type=item_metadata["sharing_type"],
-                shared_with_type=source,
                 role=item_metadata["role"],
                 risk_level=risk,
                 created_date_time=permission.get("createdDateTime", ""),
@@ -356,3 +363,127 @@ def process_link_permission(
                 run_id=run_id,
                 granted_by=item_metadata.get("granted_by", ""),
             )
+
+
+def _walk_group_members(
+        graph: GraphClient,
+        user_cache: UserCache,
+        neo4j: Neo4jClient,
+        group_id: str,
+        run_id: str,
+        visited_groups: Optional[set] = None,
+        depth: int = 0,
+        max_depth: int = 10,
+    ) -> bool:
+        """
+        Recursively retrieve all members of a group, expanding nested groups.
+        
+        Traverses the group membership hierarchy to find all individual users
+        (including guests) at any nesting level. Uses user cache to determine
+        user source based on Graph API userType field. Handles circular group
+        references and enforces a maximum recursion depth.
+        
+        Args:
+            graph: GraphClient instance.
+            user_cache: UserCache for efficient user lookups.
+            neo4j: Neo4jClient for database operations.
+            group_id: The group ID to retrieve members for.
+            run_id: Audit run ID.
+            visited_groups: Set of group IDs already processed (for circular refs).
+            depth: Current recursion depth.
+            max_depth: Maximum recursion depth to prevent infinite loops.
+            
+        Returns:
+            bool: True if group or nested groups contain any Guest/External users.
+                
+        Example:
+            >>> cache = UserCache(graph_client)
+            >>> has_external = _walk_group_members(graph, cache, neo4j, "group-id", "run-123")
+        """
+        if visited_groups is None:
+            visited_groups = set()
+        
+        if group_id in visited_groups:
+            logger.debug(f"Group {group_id} already processed, skipping (circular ref)")
+            return False
+        
+        if depth > max_depth:
+            logger.warning(
+                f"Maximum recursion depth ({max_depth}) reached for group {group_id}"
+            )
+            return False
+        
+        visited_groups.add(group_id)
+        has_external = False
+        
+        try:
+            logger.debug(f"Retrieving members for group {group_id} (depth {depth})")
+            members = graph.get_group_members(group_id)
+            
+            # Pre-populate cache with member IDs to minimize API calls
+            member_ids = [m.get("id") for m in members if m.get("id")]
+            if member_ids:
+                user_cache.batch_populate(member_ids)
+            
+            for member in members:
+                member_id = member.get("id")
+                member_display_name = member.get("displayName", "Unknown")
+                
+                # Fetch full user data from cache to ensure we have userType and identities
+                user_data = user_cache.get(member_id)
+                # if not user_data:
+                #     user_data = member  # Use directly fetched member data
+                
+                # Check if this is a user (not a nested group)
+                if member.get("@odata.type") != "#microsoft.graph.group":
+                    # This is a user (Member or Guest)
+                    try:
+                        member_node = Neo4jUserNode(user_data)
+                        
+                        if member_node.is_guest:
+                            has_external = True
+                        
+                        logger.debug(
+                            f"Found {member_node.source} member: {member_display_name} "
+                            f"(depth {depth})"
+                        )
+                        
+                        member_node.merge_as_group_member(neo4j, group_id, run_id)
+                    except ValueError as e:
+                        logger.warning(f"Invalid user data for group member: {e}")
+                        continue
+                else:
+                    # This is a nested group
+                    logger.debug(
+                        f"Expanding nested group: {member_display_name} "
+                        f"at depth {depth}"
+                    )
+                    try:
+                        neo4j.merge_nested_group(group_id, member_id, member_display_name, "Group", run_id)
+
+                    except ValueError as e:
+                        logger.warning(f"Invalid group data for nested group: {e}")
+                        continue
+                    
+                    # Recursively process nested group
+                    nested_has_external = _walk_group_members(
+                        graph,
+                        user_cache,
+                        neo4j,
+                        member_id,
+                        run_id,
+                        visited_groups,
+                        depth + 1,
+                        max_depth,
+                    )
+                    has_external = has_external or nested_has_external
+            
+            # Cache result to avoid processing same group multiple times
+            processed_groups[group_id] = {"has_guests": has_external}
+            return has_external
+     
+        except Exception:
+            logger.exception(
+                f"Error recursively retrieving members for group {group_id}"
+            )
+            return False

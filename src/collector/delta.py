@@ -117,7 +117,7 @@ def delta_scan_drive(
                 user_dict = perm.get("grantedToV2", {}).get("user") or perm.get("grantedTo", {}).get("user")
                 user_email = user_dict.get("email", "")
                 if not (role == "Owner" and user_email == owner_email):
-                    process_user_permission(perm, graph, user_cache, neo4j, item_metadata, run_id)
+                    process_user_permission(perm, user_cache, neo4j, item_metadata, run_id)
                     count += 1
 
     # Save the new delta link for next scan
