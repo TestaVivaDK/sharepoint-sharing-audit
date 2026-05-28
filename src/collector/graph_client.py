@@ -21,7 +21,15 @@ class GraphClient:
     def _get_token(self) -> str:
         """Get or refresh the access token."""
         if not self._token or time.time() >= self._token_expires_at - 300:
-            token = self._credential.get_token("https://graph.microsoft.com/.default")
+            for attempt in range(4):
+                try:
+                    token = self._credential.get_token("https://graph.microsoft.com/.default")
+                    break
+                except httpx.RequestError:
+                    if attempt < 4:
+                        time.sleep(2**attempt)
+                        continue
+                    raise
             self._token = token.token
             self._token_expires_at = token.expires_on
         return self._token
@@ -51,6 +59,12 @@ class GraphClient:
                     time.sleep(2**attempt)
                     continue
                 raise
+            except httpx.RequestError:
+                if attempt < 4:
+                    time.sleep(2**attempt)
+                    continue
+                raise
+                
         return {}
     
     def _make_batch_request(
@@ -90,6 +104,11 @@ class GraphClient:
                     self._token = None
                     continue
                 if attempt < 3 and e.response.status_code >= 500:
+                    time.sleep(2**attempt)
+                    continue
+                raise
+            except httpx.RequestError:
+                if attempt < 4:
                     time.sleep(2**attempt)
                     continue
                 raise
