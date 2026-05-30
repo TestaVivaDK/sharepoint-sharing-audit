@@ -238,14 +238,16 @@ class GraphClient:
 
         for resp in data["responses"]:
             resp_item_id = resp["id"]
-            results[resp_item_id]["permissions"] = [
-                p
-                for p in resp["body"]["value"]
-                if not (
-                    p.get("inheritedFrom", {}).get("driveId")
-                    or p.get("inheritedFrom", {}).get("path")
-                )
-            ]
+
+            item_permissions = []
+            resp_body_value = resp.get("body", {}).get("value")
+            if resp_body_value:
+                for p in resp_body_value:
+                    if not (p.get("inheritedFrom", {}).get("driveId") or p.get("inheritedFrom", {}).get("path")):
+                        item_permissions.append(p)
+
+            results[resp_item_id]["permissions"] = item_permissions
+
         logger.debug(results)
         return results
 
