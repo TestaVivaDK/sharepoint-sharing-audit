@@ -384,6 +384,6 @@ def is_teams_chat_file(item_path: str) -> bool:
 
 def get_granted_by(permission: dict) -> str:
     """Extract who granted this permission. Returns email or empty string."""
-    granted_by = permission.get("grantedByV2", {}) or permission.get("grantedBy", {})
+    granted_by = permission.get("invitation", {}).get("invitedBy", {})
     user = granted_by.get("user", {})
     return user.get("email", "")
