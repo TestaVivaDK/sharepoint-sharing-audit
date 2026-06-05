@@ -327,7 +327,7 @@ class Neo4jClient:
         run_id: str,
     ):
         """Upsert Group, User, CONTAINS, and FOUND in a single transaction."""
-        logger.info(f"NEO4J CLIENT - NESTED GROUP: {group_id} - {user_id} {user_display_name}{user_source} {run_id}")
+        logger.debug(f"NEO4J CLIENT - NESTED GROUP: {group_id} - {user_id} {user_display_name}{user_source} {run_id}")
 
         try:
             self.execute(

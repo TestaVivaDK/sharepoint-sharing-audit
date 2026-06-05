@@ -48,7 +48,6 @@ def process_user_permission(
         run_id: Audit run ID.
     """
     # Extract user from permission
-    logger.info("PROCESS USER PERMISSION")
     user_dict = permission.get("grantedToV2", {}).get("user") or permission.get("grantedTo", {}).get("user")
     if not user_dict:
         return
@@ -197,7 +196,6 @@ def process_link_permission(
                                    sharing_type, role, run_id, granted_by, tenant_domain}.
         run_id: Audit run ID.
     """
-    logger.info("PROCESS LINK PERMISSION")
     link = permission.get("link", {})
     scope = link.get("scope", "")
     

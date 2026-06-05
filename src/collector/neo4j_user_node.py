@@ -90,7 +90,7 @@ class Neo4jUserNode:
         # Determine source classification (auto or override)
         self.source = source or determine_user_source(user, tenant_domain)
         
-        logger.info(
+        logger.debug(
             f"Created Neo4jUserNode: id={self.user_id}, email={self.email}, "
             f"userType={self.user_type}, source={self.source}"
         )
@@ -147,7 +147,6 @@ class Neo4jUserNode:
             # User node created in Neo4j with properties:
             # {id: "123e...", email: "user@example.com", displayName: "John Doe", source: "Internal"}
         """
-        logger.info("MERGE NODE")
         neo4j.merge_user(self.user_id, self.email, self.display_name, self.source)
     
     # Context-specific operations
@@ -171,7 +170,6 @@ class Neo4jUserNode:
             >>> user_node.merge_as_site_owner(neo4j, "site-123")
             # Creates: User node + (User)-[:OWNS]->(Site)
         """
-        logger.info("MERGE SITE OWNER")
         self.merge_node(neo4j)
         neo4j.merge_owns(self.email, site_id)
     
@@ -197,7 +195,6 @@ class Neo4jUserNode:
             >>> user_node.merge_as_group_member(neo4j, "group-456", "run-789")
             # Creates: User node + (Group)-[:CONTAINS]->(User)
         """
-        logger.info("MERGE GROUP MEMBER")
         self.merge_node(neo4j)
         neo4j.merge_group_member(
             group_id,
@@ -255,7 +252,6 @@ class Neo4jUserNode:
             ... )
             # Creates: File node + SHARED_WITH + CONTAINS + FOUND relationships
         """
-        logger.info("MERGE PERMISSION")
         neo4j.merge_permission(
             site_id=site_id,
             drive_id=drive_id,
@@ -326,7 +322,6 @@ class Neo4jUserNode:
             ...     "2026-05-26T...", "run-123"
             ... )
         """
-        logger.info("MERGE AS LINK RECIPIENT")
         self.merge_as_file_permission_recipient(
             neo4j,
             site_id,
