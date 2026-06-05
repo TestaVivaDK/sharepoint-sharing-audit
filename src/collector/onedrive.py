@@ -169,7 +169,7 @@ def _batch_process_items_permissions(
             elif perm.get("grantedToV2", {}).get("group") or perm.get("grantedToV2", {}).get("siteGroup"):
                 # Skip SharePoint default groups if requested
                 logger.info(perm)
-                process_group_permission(perm, graph, user_cache, neo4j, item_metadata, run_id)
+                process_group_permission(perm, graph, user_cache, neo4j, item_metadata, run_id, ignore_sharepoint_groups)
             
             elif perm.get("grantedToV2", {}).get("user") or perm.get("grantedTo", {}).get("user"):
                 # Skip owner's own "owner" permission
