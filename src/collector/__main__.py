@@ -91,7 +91,7 @@ def main():
                     f"[{i}/{len(users)}] OneDrive: {user.get('displayName', '?')} ({upn})"
                 )
                 count = collect_onedrive_user(
-                    graph, user_cache, neo4j, user, run_id, tenant_domain, is_full
+                    graph, user_cache, neo4j, user, run_id, tenant_domain, is_full, config.prefer_deltashowsharingchanges
                 )
                 total += count
         else:

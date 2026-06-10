@@ -52,9 +52,10 @@ def delta_scan_drive(
     owner_email: str,
     tenant_domain: str,
     run_id: str,
+    prefer_deltashowsharingchanges: bool = False
 ) -> int:
     """Process delta changes for a single drive. Returns count of shared items found."""
-    items, new_delta_link = graph.get_drive_delta(delta_link)
+    items, new_delta_link = graph.get_drive_delta(delta_link, prefer_deltashowsharingchanges)
     logger.info(f"  Delta returned {len(items)} changed items")
 
     count = 0

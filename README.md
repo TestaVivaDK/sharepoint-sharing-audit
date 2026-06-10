@@ -141,9 +141,11 @@ The frontend dev server (Vite) proxies `/api` requests to the backend on port 80
 | `NEO4J_PASSWORD` | required | Neo4j password |
 | `DELAY_MS` | `100` | Milliseconds between API calls |
 | `USERS_TO_AUDIT` | all users | Comma-separated UPNs to audit (e.g. `user@domain.com`) |
+| `SKIP_ONEDRIVE` | `false` | Set to `true` to skip OneDrive drives |
 | `SKIP_SHAREPOINT` | `false` | Set to `true` to skip SharePoint sites |
 | `IGNORE_SHAREPOINT_GROUPS` | `false` | Set to `true` to skip SharePoint groups and to collect only Microsoft Entra groups |
 | `LOG_LEVEL` | `INFO` | Collector log level |
+| `PREFER_DELTASHOWSHARINGCHANGES` | `false` | Set to `true`to use Prefer: deltashowsharingchanges`` graph api feature to speed up changes retrieval |
 
 ### Reporter
 
