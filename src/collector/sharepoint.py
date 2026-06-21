@@ -9,7 +9,7 @@ from shared.neo4j_client import Neo4jClient
 from collector.onedrive import _walk_drive_items
 from collector.user_cache import UserCache
 from collector.neo4j_user_node import Neo4jUserNode
-from collector.delta import delta_scan_drive
+from collector.delta import delta_scan_drive, attempt_delta_scan, seed_delta_link_safe
 
 logger = logging.getLogger(__name__)
 
@@ -75,56 +75,39 @@ def collect_sharepoint_sites(
                     run_id,
                     ignore_sharepoint_groups,
                 )
-                try:
-                    link = graph.seed_delta_link(drive_id)
-                    neo4j.save_delta_link(drive_id, link)
-                except Exception as e:
-                    logger.warning(
-                        f"Could not seed delta link for drive {drive_id}: {e}"
-                    )
+                seed_delta_link_safe(graph, neo4j, drive_id, f"site {site_name}")
             else:
                 delta_link = neo4j.get_delta_link(drive_id)
                 if delta_link:
-                    try:
-                        count = delta_scan_drive(
+                    count, needs_fallback = attempt_delta_scan(
+                        graph,
+                        user_cache,
+                        neo4j,
+                        drive_id,
+                        delta_link,
+                        site_id,
+                        owner_email,
+                        tenant_domain,
+                        run_id,
+                    )
+                    if needs_fallback:
+                        logger.warning(
+                            f"Delta link expired for drive {drive_id}, "
+                            "falling back to full walk"
+                        )
+                        count = _walk_drive_items(
                             graph,
                             user_cache,
                             neo4j,
                             drive_id,
-                            delta_link,
+                            "root",
+                            "",
                             site_id,
                             owner_email,
                             tenant_domain,
                             run_id,
+                            ignore_sharepoint_groups
                         )
-                    except httpx.HTTPStatusError as e:
-                        if e.response.status_code in (410, 404):
-                            logger.warning(
-                                f"Delta link expired for drive {drive_id}, "
-                                "falling back to full walk"
-                            )
-                            count = _walk_drive_items(
-                                graph,
-                                user_cache,
-                                neo4j,
-                                drive_id,
-                                "root",
-                                "",
-                                site_id,
-                                owner_email,
-                                tenant_domain,
-                                run_id,
-                                ignore_sharepoint_groups
-                            )
-                            try:
-                                link = graph.seed_delta_link(drive_id)
-                                neo4j.save_delta_link(drive_id, link)
-                            except Exception as ex:
-                                logger.warning(
-                                    f"Could not seed delta link for drive {drive_id}: {ex}"
-                                )
-                        else:
-                            raise
                 else:
                     logger.info(f"  No delta link for drive {drive_id} — full walk")
                     count = _walk_drive_items(
@@ -140,13 +123,8 @@ def collect_sharepoint_sites(
                         run_id,
                         ignore_sharepoint_groups
                     )
-                    try:
-                        link = graph.seed_delta_link(drive_id)
-                        neo4j.save_delta_link(drive_id, link)
-                    except Exception as e:
-                        logger.warning(
-                            f"Could not seed delta link for drive {drive_id}: {e}"
-                        )
+                
+                seed_delta_link_safe(graph, neo4j, drive_id, f"site {site_name}")
 
             total += count
 

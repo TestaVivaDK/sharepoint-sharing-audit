@@ -2,6 +2,8 @@
 
 import logging
 
+import httpx
+
 from collector.graph_client import GraphClient
 from shared.neo4j_client import Neo4jClient
 from collector.user_cache import UserCache
@@ -9,13 +11,12 @@ from collector.permission_processors import (
     process_user_permission,
     process_group_permission,
     process_link_permission,
+    processed_groups,
 )
 from shared.classify import (
     get_sharing_type,
-    get_risk_level,
     get_permission_role,
     get_granted_by,
-    determine_user_source,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,7 +53,8 @@ def delta_scan_drive(
     owner_email: str,
     tenant_domain: str,
     run_id: str,
-    prefer_deltashowsharingchanges: bool = False
+    prefer_deltashowsharingchanges: bool = False,
+    ignore_sharepoint_groups: bool = False
 ) -> int:
     """Process delta changes for a single drive. Returns count of shared items found."""
     items, new_delta_link = graph.get_drive_delta(delta_link, prefer_deltashowsharingchanges)
@@ -110,7 +112,7 @@ def delta_scan_drive(
                 count += 1
             
             elif perm.get("grantedToV2", {}).get("group") or perm.get("grantedToV2", {}).get("siteGroup"):
-                process_group_permission(perm, graph, user_cache, neo4j, item_metadata, run_id)
+                process_group_permission(perm, graph, user_cache, neo4j, item_metadata, run_id, ignore_sharepoint_groups)
                 count += 1
             
             elif perm.get("grantedToV2", {}).get("user") or perm.get("grantedTo", {}).get("user"):
@@ -127,3 +129,68 @@ def delta_scan_drive(
     else:
         logger.warning(f"No delta link returned for drive {drive_id}")
     return count
+
+
+def attempt_delta_scan(
+    graph: GraphClient,
+    user_cache: UserCache,
+    neo4j: Neo4jClient,
+    drive_id: str,
+    delta_link: str,
+    site_id: str,
+    owner_email: str,
+    tenant_domain: str,
+    run_id: str,
+    prefer_deltashowsharingchanges: bool = False,
+    ignore_sharepoint_groups: bool = False,
+) -> tuple:
+    """
+    Attempt delta scan with 410/404 error handling.
+
+    Returns (count, needs_fallback):
+    - (count, False) on success
+    - (None, True) on 410/404 (caller should handle full walk fallback)
+    - Re-raises other HTTPStatusError exceptions
+    """
+    try:
+        count = delta_scan_drive(
+            graph,
+            user_cache,
+            neo4j,
+            drive_id,
+            delta_link,
+            site_id,
+            owner_email,
+            tenant_domain,
+            run_id,
+            prefer_deltashowsharingchanges,
+            ignore_sharepoint_groups,
+        )
+        return (count, False)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code in (410, 404):
+            # Delta link expired; caller will handle fallback to full walk
+            return (None, True)
+        else:
+            # Other HTTP errors should propagate
+            raise
+
+
+def seed_delta_link_safe(
+    graph: GraphClient,
+    neo4j: Neo4jClient,
+    drive_id: str,
+    context_label: str = "",
+) -> None:
+    """
+    Seed a new delta link with graceful error handling.
+
+    Logs warning on failure but doesn't raise exceptions.
+    """
+    try:
+        link = graph.seed_delta_link(drive_id)
+        neo4j.save_delta_link(drive_id, link)
+    except Exception as e:
+        context_info = f" for {context_label}" if context_label else ""
+        logger.warning(f"Could not seed delta link for drive {drive_id}{context_info}: {e}")
+

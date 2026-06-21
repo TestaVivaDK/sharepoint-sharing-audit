@@ -20,7 +20,7 @@ from collector.permission_processors import (
     process_link_permission,
     processed_groups,
 )
-from collector.delta import delta_scan_drive
+from collector.delta import delta_scan_drive, attempt_delta_scan, seed_delta_link_safe
 from collector.user_cache import UserCache
 from typing import Any, Dict, List, Optional, NoReturn
 
@@ -224,51 +224,37 @@ def collect_onedrive_user(
             run_id,
         )
         # Seed delta link for next scan
-        try:
-            link = graph.seed_delta_link(drive_id)
-            neo4j.save_delta_link(drive_id, link)
-        except Exception as e:
-            logger.warning(f"Could not seed delta link for {upn}: {e}")
+        seed_delta_link_safe(graph, neo4j, drive_id, upn)
     else:
         delta_link = neo4j.get_delta_link(drive_id)
         if delta_link:
-            try:
-                count = delta_scan_drive(
+            count, needs_fallback = attempt_delta_scan(
+                graph,
+                user_cache,
+                neo4j,
+                drive_id,
+                delta_link,
+                site_id,
+                upn,
+                tenant_domain,
+                run_id,
+                prefer_deltashowsharingchanges,
+                ignore_sharepoint_groups=False
+            )
+            if needs_fallback:
+                logger.warning(f"Delta link expired for {upn}, falling back to full walk")
+                count = _walk_drive_items(
                     graph,
                     user_cache,
                     neo4j,
                     drive_id,
-                    delta_link,
+                    "root",
+                    "",
                     site_id,
                     upn,
                     tenant_domain,
                     run_id,
-                    prefer_deltashowsharingchanges
                 )
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code in (410, 404):
-                    logger.warning(
-                        f"Delta link expired for {upn}, falling back to full walk"
-                    )
-                    count = _walk_drive_items(
-                        graph,
-                        user_cache,
-                        neo4j,
-                        drive_id,
-                        "root",
-                        "",
-                        site_id,
-                        upn,
-                        tenant_domain,
-                        run_id,
-                    )
-                    try:
-                        link = graph.seed_delta_link(drive_id)
-                        neo4j.save_delta_link(drive_id, link)
-                    except Exception as ex:
-                        logger.warning(f"Could not seed delta link for {upn}: {ex}")
-                else:
-                    raise
         else:
             logger.info(f"  No delta link for {upn} — falling back to full walk")
             count = _walk_drive_items(
@@ -283,11 +269,8 @@ def collect_onedrive_user(
                 tenant_domain,
                 run_id,
             )
-            try:
-                link = graph.seed_delta_link(drive_id)
-                neo4j.save_delta_link(drive_id, link)
-            except Exception as e:
-                logger.warning(f"Could not seed delta link for {upn}: {e}")
+        
+        seed_delta_link_safe(graph, neo4j, drive_id, upn)
 
     logger.info(f"OneDrive {display_name} ({upn}): {count} shared items")
     return count
