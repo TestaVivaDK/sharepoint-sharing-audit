@@ -78,7 +78,7 @@ def delta_scan_drive(
             neo4j.merge_file(drive_id, item_id, item_path, web_url, item_type)
             neo4j.merge_contains(site_id, drive_id, item_id)
             neo4j.mark_file_found(drive_id, item_id, run_id)
-            continue
+            #continue
 
         # Permission change: re-fetch and re-merge
         try:
