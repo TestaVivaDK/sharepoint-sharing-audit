@@ -55,11 +55,20 @@ def collect_sharepoint_sites(
             # Determine owner (best effort)
             owner_email = ""
             owner = drive.get("owner", {})
+
             if owner.get("user", {}).get("email") and owner.get("user", {}).get("id"):
                 owner_email = owner["user"]["email"]
                 # Create user node and establish ownership
                 owner_user = Neo4jUserNode(owner["user"], source="Internal")  # Drive owner is always internal
                 owner_user.merge_as_site_owner(neo4j, site_id)
+                
+            elif owner.get("group", {}).get("id"):
+                group_id = owner.get("group", {}).get("id")
+                group_owners = graph.get_group_owners(group_id)
+                
+                if len(group_owners) > 0:
+                    owner_user = Neo4jUserNode(group_owners[0], source="Internal")  # Drive owner is always internal
+                    owner_user.merge_as_site_owner(neo4j, site_id)
 
             if is_full:
                 count = _walk_drive_items(
