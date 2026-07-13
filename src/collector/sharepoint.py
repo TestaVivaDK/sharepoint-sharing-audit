@@ -56,8 +56,8 @@ def collect_sharepoint_sites(
             owner_email = ""
             owner = drive.get("owner", {})
 
-            if owner.get("user", {}).get("email") and owner.get("user", {}).get("id"):
-                owner_email = owner["user"]["email"]
+            if owner.get("user", {}).get("mail") and owner.get("user", {}).get("id"):
+                owner_email = owner["user"]["mail"]
                 # Create user node and establish ownership
                 owner_user = Neo4jUserNode(owner["user"], source="Internal")  # Drive owner is always internal
                 owner_user.merge_as_site_owner(neo4j, site_id)
@@ -67,6 +67,7 @@ def collect_sharepoint_sites(
                 group_owners = graph.get_group_owners(group_id)
                 
                 if len(group_owners) > 0:
+                    owner_email = group_owners[0].get("mail")
                     owner_user = Neo4jUserNode(group_owners[0], source="Internal")  # Drive owner is always internal
                     owner_user.merge_as_site_owner(neo4j, site_id)
 
