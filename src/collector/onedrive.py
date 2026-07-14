@@ -2,27 +2,22 @@
 
 import logging
 
-import httpx
-
 from collector.graph_client import GraphClient
 from shared.neo4j_client import Neo4jClient
 from collector.neo4j_user_node import Neo4jUserNode
 from shared.classify import (
     get_sharing_type,
-    get_risk_level,
     get_permission_role,
     get_granted_by,
-    determine_user_source,
 )
 from collector.permission_processors import (
     process_user_permission,
     process_group_permission,
     process_link_permission,
-    processed_groups,
 )
-from collector.delta import delta_scan_drive, attempt_delta_scan, seed_delta_link_safe
+from collector.delta import attempt_delta_scan, seed_delta_link_safe
 from collector.user_cache import UserCache
-from typing import Any, Dict, List, Optional, NoReturn
+from typing import List
 
 logger = logging.getLogger(__name__)
 

@@ -86,7 +86,7 @@ class Neo4jGroupNode:
         # Extract attributes from group object
         self.group_id = group.get("id", "")
         self.display_name = group.get("displayName", "Unknown Group")
-        self.email = group.get("email", "")
+        self.email = group.get("mail", "")
         
         # Validate UUID
         if not self._is_valid_uuid(self.group_id):
@@ -295,7 +295,11 @@ class Neo4jGroupNode:
             members_data = self.graph_client.get_group_members(self.group_id)
             
             # Pre-populate cache with all member IDs
-            member_ids = [m.get("id") for m in members_data if m.get("id")]
+            member_ids = [
+                m.get("id")
+                for m in members_data
+                if m.get("id") and m.get("@odata.type") != "#microsoft.graph.group"
+            ]
             if member_ids:
                 self.user_cache.batch_populate(member_ids)
             
@@ -308,7 +312,7 @@ class Neo4jGroupNode:
                 user_data = self.user_cache.get(member_id)
                 
                 # Check if this is a user or nested group
-                if member.get("@odata.type") != "#microsoft.graph.group":
+                if user_data and member.get("@odata.type") != "#microsoft.graph.group":
                     # This is a user
                     try:
                         member_node = Neo4jUserNode(user_data)

@@ -271,7 +271,7 @@ class GraphClient:
             requests.append({
                 "id": user_id,
                 "method": "GET",
-                "url": f"users/{user_id}?$select=id,mail,email,userPrincipalName,displayName,userType,identities"
+                "url": f"users/{user_id}?$select=id,mail,userPrincipalName,displayName,userType,identities"
             })
             results[user_id] = None
         

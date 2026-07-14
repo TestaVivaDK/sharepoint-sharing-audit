@@ -53,8 +53,6 @@ def process_user_permission(
         return
     
     user_id = user_dict.get("id", "")
-    # email = user_dict.get("email", "")
-    # display_name = user_dict.get("displayName", "Unknown User")
     
     if not user_id or not is_valid_uuid(user_id):
         logger.warning(f"Invalid user ID in permission: {user_dict} for {item_metadata['item_path']}")
@@ -62,15 +60,10 @@ def process_user_permission(
     
     # Fetch full user data via cache to get userType and identities
     user_data = user_cache.get(user_id)
-    # if not user_data:
-    #     # Lazy-load if cache is empty
-    #     user_data = {
-    #         "id": user_id,
-    #         "email": email,
-    #         "displayName": display_name,
-    #         "userType": "Member",
-    #         "identities": [],
-    #     }
+    
+    if not user_data:
+        logger.warning(f"User {user_id} not found for permission {permission} on {item_metadata['item_path']}")
+        return
     
     # Create Neo4jUserNode for processing
     try:
@@ -130,13 +123,16 @@ def process_group_permission(
     # Extract group from permission
     granted = permission.get("grantedToV2", {})
     group_dict = granted.get("group") or granted.get("siteGroup")
+    if not group_dict:
+        return
+    
+    if ignore_sharepoint_groups and not granted.get("group"):
+        return
+    
     group_id = group_dict.get("id", "")
     group_name = group_dict.get("displayName", "")
 
-    if(ignore_sharepoint_groups) and not permission.get("grantedToV2", {}).get("group"):
-        return
-
-    if (not group_dict) or group_name  in ["SharePoint Administrator", "Global Administrator"]: #and not (group_dict.get("displayName", "").lower() in ["sharepoint"] if ignore_sharepoint_groups else False):
+    if group_name  in ["SharePoint Administrator", "Global Administrator"]:
         return
     
     if not group_id or not is_valid_uuid(group_id):
@@ -145,8 +141,6 @@ def process_group_permission(
     
     try:
         # Create Neo4jGroupNode from permission
-        granted = permission.get("grantedToV2", {})
-        group_dict = granted.get("group") or granted.get("siteGroup")
         group_type = "Group" if "group" in granted else "siteGroup"
         
         if not group_dict:
@@ -252,8 +246,6 @@ def process_link_permission(
         if "user" in identity:
             user_dict = identity.get("user", {})
             user_id = user_dict.get("id", "")
-            # email = user_dict.get("email", "")
-            # display_name = user_dict.get("displayName", "Unknown User")
             
             if not user_id or not is_valid_uuid(user_id):
                 logger.warning(f"Invalid user ID in link identity: {user_id} for {item_metadata['item_path']}")
@@ -261,14 +253,11 @@ def process_link_permission(
             
             # Fetch full user data via cache to get userType and identities
             user_data = user_cache.get(user_id)
-            # if not user_data:
-            #     user_data = {
-            #         "id": user_id,
-            #         "email": email,
-            #         "displayName": display_name,
-            #         "userType": "Member",
-            #         "identities": [],
-            #     }
+            if not user_data:
+                logger.warning(
+                    f"User {user_id} not found for link identity {identity} on {item_metadata['item_path']}"
+                )
+                continue
             
             # Create Neo4jUserNode for processing
             try:
