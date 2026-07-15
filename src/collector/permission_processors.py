@@ -10,10 +10,9 @@ from collector.neo4j_user_node import Neo4jUserNode
 from collector.neo4j_group_node import Neo4jGroupNode
 from collector.group_cache import GroupMembershipCache
 from shared.classify import (
-    get_risk_level,
-    determine_user_source,
+    get_risk_level
 )
-from typing import Optional
+from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +54,7 @@ def process_user_permission(
     user_id = user_dict.get("id", "")
     
     if not user_id or not is_valid_uuid(user_id):
-        logger.warning(f"Invalid user ID in permission: {user_dict} for {item_metadata['item_path']}")
+        logger.debug(f"Invalid user ID in permission: {user_dict} for {item_metadata['item_path']}")
         return
     
     # Fetch full user data via cache to get userType and identities
@@ -248,7 +247,7 @@ def process_link_permission(
             user_id = user_dict.get("id", "")
             
             if not user_id or not is_valid_uuid(user_id):
-                logger.warning(f"Invalid user ID in link identity: {user_id} for {item_metadata['item_path']}")
+                logger.debug(f"Invalid user ID in link identity: {user_id} for {item_metadata['item_path']}")
                 continue
             
             # Fetch full user data via cache to get userType and identities
@@ -324,3 +323,79 @@ def process_link_permission(
             except ValueError as e:
                 logger.warning(f"Invalid group in link identity: {e}")
                 continue
+
+
+def get_granted_by(user_cache: UserCache, drive_item: Dict[str, Any], permission: Dict[str, Any] = None) -> Optional[str]:
+    """
+    Extracts the email of the user who shared a Microsoft Graph DriveItem.
+    Evaluates both the DriveItem metadata and a provided list of Permissions.
+    
+    :param drive_item: The DriveItem dictionary returned by Graph API.
+    :param permissions: (Optional) A list of Permission dictionaries for the item.
+    :return: The email address (str) of the sharing user, or None if not found/applicable.
+    """
+    if not isinstance(drive_item, dict):
+        logger.error("Invalid input: drive_item must be a dictionary.")
+        return None
+
+    # --- Case 1: Check DriveItem's 'shared' facet ---
+    shared_facet = drive_item.get('shared', {})
+    shared_by = shared_facet.get('sharedBy', {})
+    
+    # Direct User Match
+    if 'user' in shared_by:
+        user_id = shared_by['user'].get('id')
+        # Fetch full user data via cache to get userType and identities
+        user_data = user_cache.get(user_id)
+        logger.info(f"SHARED_BY - USERDATA: {user_data}")       
+        if not user_data:
+            logger.warning(f"User {user_id} not found for permission {permission} on {drive_item['item_path']}")
+            return
+        
+        email = user_data.get("email", "")
+        if email:
+            return email
+        else:
+            logger.warning("Item was shared by a user, but their email is missing from the user identity object.")
+            
+    # System Match (Application or Device)
+    if 'application' in shared_by or 'device' in shared_by:
+        app_name = shared_by.get('application', {}).get('displayName', 'Unknown App')
+        logger.info(f"Item was shared systemically by an application or device ({app_name}), not a human user.")
+        return None
+
+    # --- Case 2: Check Permissions List (If sharedBy is empty) ---
+    if permission:
+        if not isinstance(permission, dict):
+            logger.error("Invalid input: permissions must be a dictionary.")
+            return None
+            
+        # Look for an explicit invitation which tracks who sent the share link
+        invitation = permission.get('invitation', {})
+        invited_by = invitation.get('invitedBy', {})
+        
+        if 'user' in invited_by:
+            # Fetch full user data via cache to get userType and identities
+            user_id = invited_by['user'].get('id')
+            user_data = user_cache.get(user_id)
+            logger.info(f"INVITATION - USERDATA: {user_data}")       
+            if not user_data:
+                logger.warning(f"User {user_id} not found for permission {permission} on {drive_item['item_path']}")
+                return
+            
+            email = user_data.get("email", "")
+            if email:
+                logger.info("Sharing user found via permission invitation.")
+                return email
+        
+        # Identify inherited permissions for logging/auditing
+        inherited_from = permission.get('inheritedFrom')
+        if inherited_from:
+            parent_id = inherited_from.get('item', {}).get('id')
+            logger.info(f"Permission inherited from parent item {parent_id}. You would need the parent DriveItem to find the original sharer.")
+
+    elif not shared_by:
+        logger.warning("'sharedBy' is empty on the item and no permissions list was provided to evaluate.")
+
+    # Fallback if no matching cases apply
+    return None

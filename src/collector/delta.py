@@ -11,12 +11,11 @@ from collector.permission_processors import (
     process_user_permission,
     process_group_permission,
     process_link_permission,
-    processed_groups,
+    get_granted_by,
 )
 from shared.classify import (
     get_sharing_type,
     get_permission_role,
-    get_granted_by,
 )
 
 logger = logging.getLogger(__name__)
@@ -90,7 +89,7 @@ def delta_scan_drive(
         for perm in permissions:
             sharing_type = get_sharing_type(perm)
             role = get_permission_role(perm)
-            granted_by = get_granted_by(perm) or owner_email
+            granted_by = get_granted_by(user_cache, item, perm) or owner_email
             
             # Build item metadata dict for permission processors
             item_metadata = {
