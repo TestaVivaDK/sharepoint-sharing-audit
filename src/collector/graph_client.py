@@ -236,20 +236,22 @@ class GraphClient:
 
         data = self._make_batch_request(requests)
 
-        for resp in data["responses"]:
-            resp_item_id = resp["id"]
+        if data.get("responses"):
+            for resp in data["responses"]:
+                resp_item_id = resp["id"]
 
-            item_permissions = []
-            resp_body_value = resp.get("body", {}).get("value")
-            if resp_body_value:
-                for p in resp_body_value:
-                    if not (p.get("inheritedFrom", {}).get("driveId") or p.get("inheritedFrom", {}).get("path")):
-                        item_permissions.append(p)
+                item_permissions = []
+                resp_body_value = resp.get("body", {}).get("value")
+                if resp_body_value:
+                    for p in resp_body_value:
+                        if not (p.get("inheritedFrom", {}).get("driveId") or p.get("inheritedFrom", {}).get("path")):
+                            item_permissions.append(p)
 
-            results[resp_item_id]["permissions"] = item_permissions
+                results[resp_item_id]["permissions"] = item_permissions
 
         logger.debug(results)
         return results
+    
     def batch_get_users(self, user_ids: list[str]) -> Dict[str, Dict[str, Any]]:
         """Batch-fetch user details by user ID.
         
