@@ -300,11 +300,18 @@ class GraphClient:
         
         # Return only successfully fetched users
         return {uid: data for uid, data in results.items() if data is not None}
+    
     def seed_delta_link(self, drive_id: str) -> str:
         """Get initial delta link for a drive without enumerating items."""
+        prefer = (
+            "deltashowsharingchanges, deltashowremovedasdeleted, "
+            "deltatraversepermissiongaps"
+        )
+        
         data = self._make_request(
-            f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root/delta",
-            {"token": "latest"},
+            url=f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root/delta",
+            params={"token": "latest"},
+            extra_headers={"Prefer": prefer},
         )
         delta_link = data.get("@odata.deltaLink")
         if not delta_link:
