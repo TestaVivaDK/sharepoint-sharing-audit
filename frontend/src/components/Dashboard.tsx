@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { Box, TextField, FormControl, InputLabel, Select, MenuItem, Container } from '@mui/material'
-import type { GridRowSelectionModel } from '@mui/x-data-grid-pro'
+import type { GridRowSelectionModel } from '@mui/x-data-grid'
 import { useFiles } from '../api/hooks'
 import { AppHeader } from './AppHeader'
 import { SummaryCards } from './SummaryCards'
