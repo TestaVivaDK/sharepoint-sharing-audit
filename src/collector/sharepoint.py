@@ -54,10 +54,16 @@ def collect_sharepoint_sites(
             owner_email = ""
             owner = drive.get("owner", {})
 
-            if owner.get("user", {}).get("mail") and owner.get("user", {}).get("id"):
-                owner_email = owner["user"]["mail"]
+            if owner.get("user", {}).get("id"):
+                user_id = owner.get("user", {}).get("id")
+                user_data = user_cache.get(user_id)      
+                if not user_data:
+                    logger.warning(f"Drive owner id {user_id} not found for drive {drive}")
+                else:
+                    owner_email = user_data.get("email", "")
+
                 # Create user node and establish ownership
-                owner_user = Neo4jUserNode(owner["user"], source="Internal")  # Drive owner is always internal
+                owner_user = Neo4jUserNode(user_data, source="Internal")  # Drive owner is always internal
                 owner_user.merge_as_site_owner(neo4j, site_id)
                 
             elif owner.get("group", {}).get("id"):
