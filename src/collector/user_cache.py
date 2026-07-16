@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 
 class UserCache:
-    """Thread-safe cache for user data from Microsoft Graph API.
+    """In-memory cache for user data from Microsoft Graph API.
     
     Caches user objects by user ID to avoid redundant API calls during
     a single collector execution. Supports lazy-loading from Graph API.

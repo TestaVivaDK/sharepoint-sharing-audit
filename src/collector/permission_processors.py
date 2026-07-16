@@ -346,10 +346,9 @@ def get_granted_by(user_cache: UserCache, drive_item: Dict[str, Any], permission
     if 'user' in shared_by:
         user_id = shared_by['user'].get('id')
         # Fetch full user data via cache to get userType and identities
-        user_data = user_cache.get(user_id)
-        logger.info(f"SHARED_BY - USERDATA: {user_data}")       
+        user_data = user_cache.get(user_id)      
         if not user_data:
-            logger.warning(f"User {user_id} not found for permission {permission} on {drive_item['item_path']}")
+            logger.warning(f"User {user_id} not found for permission {permission} on {drive_item}")
             return
         
         email = user_data.get("email", "")

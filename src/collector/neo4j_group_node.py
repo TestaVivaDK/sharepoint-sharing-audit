@@ -308,11 +308,14 @@ class Neo4jGroupNode:
                 member_id = member.get("id")
                 member_display_name = member.get("displayName", "Unknown")
                 
-                # Get full user data from cache
-                user_data = self.user_cache.get(member_id)
-                
                 # Check if this is a user or nested group
-                if user_data and member.get("@odata.type") != "#microsoft.graph.group":
+                if member.get("@odata.type") != "#microsoft.graph.group":
+                    # Get full user data from cache
+                    user_data = self.user_cache.get(member_id)
+                    if not user_data:
+                        logger.warning(f"User {member_id} not found during enumeration of group {self.group_id}")
+                        continue
+                    
                     # This is a user
                     try:
                         member_node = Neo4jUserNode(user_data)
