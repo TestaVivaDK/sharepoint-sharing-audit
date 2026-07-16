@@ -69,7 +69,7 @@ class Neo4jClient:
         """Upsert a Group node."""
         try:
             self.execute(
-                "MERGE (g:Group {id: $groupId, displayName: $name}) SET g.id = $groupId, g.displayName = $name, g.source = $source",
+                "MERGE (g:Group {id: $groupId}) SET g.displayName = $name, g.source = $source",
                 {"groupId": id, "name": display_name, "source": source},
             )
         except Exception as e:
