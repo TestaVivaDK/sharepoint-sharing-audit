@@ -62,6 +62,7 @@ The goal is to get your tenant to a clean sharing baseline before you turn on AI
 | `User.Read.All` | Enumerate all users |
 | `Sites.Read.All` | Read all SharePoint sites and document libraries |
 | `Files.Read.All` | Read all OneDrive files and sharing permissions |
+| `Sites.FullControl.All`| Allows the app to have full control of all site collections without a signed in user. **Required to properly process permissions changes in delta scans.** If this permission is not granted, rely only on full scans (`FORCE_FULL_SCAN=true`) and purge neo4j database before each full scan |
 
 **Delegated permissions** (for the webapp — user-consented):
 
@@ -141,8 +142,11 @@ The frontend dev server (Vite) proxies `/api` requests to the backend on port 80
 | `NEO4J_PASSWORD` | required | Neo4j password |
 | `DELAY_MS` | `100` | Milliseconds between API calls |
 | `USERS_TO_AUDIT` | all users | Comma-separated UPNs to audit (e.g. `user@domain.com`) |
+| `SKIP_ONEDRIVE` | `false` | Set to `true` to skip OneDrive drives |
 | `SKIP_SHAREPOINT` | `false` | Set to `true` to skip SharePoint sites |
 | `IGNORE_SHAREPOINT_GROUPS` | `false` | Set to `true` to skip SharePoint groups and to collect only Microsoft Entra groups |
+| `FORCE_FULL_SCAN`| `false` | Set to `true` to force full scan and ignore delta scans |
+| `FULL_SCAN_INTERVAL_DAYS` | `7` | Number of days between forced full scans |
 | `LOG_LEVEL` | `INFO` | Collector log level |
 
 ### Reporter

@@ -2,14 +2,20 @@
 
 import logging
 
+import httpx
+
 from collector.graph_client import GraphClient
 from shared.neo4j_client import Neo4jClient
+from collector.user_cache import UserCache
+from collector.permission_processors import (
+    process_user_permission,
+    process_group_permission,
+    process_link_permission,
+    get_granted_by,
+)
 from shared.classify import (
     get_sharing_type,
-    get_shared_with_info,
-    get_risk_level,
     get_permission_role,
-    get_granted_by,
 )
 
 logger = logging.getLogger(__name__)
@@ -38,6 +44,7 @@ def _item_path_from_delta(item: dict) -> str:
 
 def delta_scan_drive(
     graph: GraphClient,
+    user_cache: UserCache,
     neo4j: Neo4jClient,
     drive_id: str,
     delta_link: str,
@@ -45,6 +52,7 @@ def delta_scan_drive(
     owner_email: str,
     tenant_domain: str,
     run_id: str,
+    ignore_sharepoint_groups: bool = False
 ) -> int:
     """Process delta changes for a single drive. Returns count of shared items found."""
     items, new_delta_link = graph.get_drive_delta(delta_link)
@@ -56,21 +64,26 @@ def delta_scan_drive(
 
         # Handle deleted items
         if item.get("deleted"):
-            neo4j.remove_file_permissions(drive_id, item_id, run_id)
+            neo4j.remove_file_permissions_and_delete(drive_id, item_id, run_id)
             continue
 
         item_path = _item_path_from_delta(item)
         item_type = "Folder" if item.get("folder") else "File"
         web_url = item.get("webUrl", "")
 
-        # Content-only change: update file metadata and relationships
+        # Content change: update file metadata and site/drive relationships before processing permissions
         if not item.get("@microsoft.graph.sharedChanged"):
             neo4j.merge_file(drive_id, item_id, item_path, web_url, item_type)
             neo4j.merge_contains(site_id, drive_id, item_id)
             neo4j.mark_file_found(drive_id, item_id, run_id)
-            continue
 
-        # Permission change: re-fetch and re-merge
+        # Step 1 : Delete all SHARED_WITH relations of the file object in the graph
+        try:
+            neo4j.remove_file_permissions(drive_id, item_id)
+        except Exception as e:
+            logger.warning(f"Could not remove SHARED_WITH relations for {item_path} in the graph: {e}")
+        
+        # Step2 : Permission re-fetch and re-merge
         try:
             permissions = graph.get_item_permissions(drive_id, item_id)
         except Exception as e:
@@ -79,41 +92,39 @@ def delta_scan_drive(
 
         for perm in permissions:
             sharing_type = get_sharing_type(perm)
-            shared_info = get_shared_with_info(perm, tenant_domain)
             role = get_permission_role(perm)
-            granted_by = get_granted_by(perm) or owner_email
-            risk = get_risk_level(
-                sharing_type, shared_info["shared_with_type"], item_path
-            )
-
-            if role == "Owner" and shared_info["shared_with"] == owner_email:
-                continue
-
-            shared_email = shared_info["shared_with"]
-            if shared_info["shared_with_type"] == "Anonymous":
-                shared_email = "anonymous"
-            elif sharing_type == "Link-Organization":
-                shared_email = "organization"
-
-            neo4j.merge_permission(
-                site_id=site_id,
-                drive_id=drive_id,
-                item_id=item_id,
-                item_path=item_path,
-                web_url=web_url,
-                file_type=item_type,
-                user_email=shared_email,
-                user_display_name=shared_info["shared_with"],
-                user_source=shared_info["shared_with_type"],
-                sharing_type=sharing_type,
-                shared_with_type=shared_info["shared_with_type"],
-                role=role,
-                risk_level=risk,
-                created_date_time=perm.get("createdDateTime", ""),
-                run_id=run_id,
-                granted_by=granted_by,
-            )
-            count += 1
+            granted_by = get_granted_by(user_cache, item, perm) or owner_email
+            
+            # Build item metadata dict for permission processors
+            item_metadata = {
+                "site_id": site_id,
+                "drive_id": drive_id,
+                "item_id": item_id,
+                "item_path": item_path,
+                "web_url": web_url,
+                "file_type": item_type,
+                "sharing_type": sharing_type,
+                "role": role,
+                "granted_by": granted_by,
+                "tenant_domain": tenant_domain,
+            }
+            
+            # Dispatch to appropriate processor based on permission type
+            if "link" in perm:
+                process_link_permission(perm, graph, user_cache, neo4j, item_metadata, run_id)
+                count += 1
+            
+            elif perm.get("grantedToV2", {}).get("group") or perm.get("grantedToV2", {}).get("siteGroup"):
+                process_group_permission(perm, graph, user_cache, neo4j, item_metadata, run_id, ignore_sharepoint_groups)
+                count += 1
+            
+            elif perm.get("grantedToV2", {}).get("user") or perm.get("grantedTo", {}).get("user"):
+                # Skip owner's own "owner" permission
+                user_dict = perm.get("grantedToV2", {}).get("user") or perm.get("grantedTo", {}).get("user")
+                user_email = user_dict.get("email", "")
+                if not (role == "Owner" and user_email == owner_email):
+                    process_user_permission(perm, user_cache, neo4j, item_metadata, run_id)
+                    count += 1
 
     # Save the new delta link for next scan
     if new_delta_link:
@@ -121,3 +132,66 @@ def delta_scan_drive(
     else:
         logger.warning(f"No delta link returned for drive {drive_id}")
     return count
+
+
+def attempt_delta_scan(
+    graph: GraphClient,
+    user_cache: UserCache,
+    neo4j: Neo4jClient,
+    drive_id: str,
+    delta_link: str,
+    site_id: str,
+    owner_email: str,
+    tenant_domain: str,
+    run_id: str,
+    ignore_sharepoint_groups: bool = False,
+) -> tuple:
+    """
+    Attempt delta scan with 410/404 error handling.
+
+    Returns (count, needs_fallback):
+    - (count, False) on success
+    - (None, True) on 410/404 (caller should handle full walk fallback)
+    - Re-raises other HTTPStatusError exceptions
+    """
+    try:
+        count = delta_scan_drive(
+            graph,
+            user_cache,
+            neo4j,
+            drive_id,
+            delta_link,
+            site_id,
+            owner_email,
+            tenant_domain,
+            run_id,
+            ignore_sharepoint_groups,
+        )
+        return (count, False)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code in (410, 404):
+            # Delta link expired; caller will handle fallback to full walk
+            return (None, True)
+        else:
+            # Other HTTP errors should propagate
+            raise
+
+
+def seed_delta_link_safe(
+    graph: GraphClient,
+    neo4j: Neo4jClient,
+    drive_id: str,
+    context_label: str = "",
+) -> None:
+    """
+    Seed a new delta link with graceful error handling.
+
+    Logs warning on failure but doesn't raise exceptions.
+    """
+    try:
+        link = graph.seed_delta_link(drive_id)
+        neo4j.save_delta_link(drive_id, link)
+    except Exception as e:
+        context_info = f" for {context_label}" if context_label else ""
+        logger.warning(f"Could not seed delta link for drive {drive_id}{context_info}: {e}")
+

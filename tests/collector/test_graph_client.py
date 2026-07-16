@@ -87,7 +87,7 @@ class TestGraphClient:
 
 class TestDeltaMethods:
     def test_seed_delta_link(self):
-        """seed_delta_link calls delta?token=latest and returns deltaLink."""
+        """seed_delta_link calls delta?token=latest with Prefer header and returns deltaLink."""
         client = GraphClient.__new__(GraphClient)
         client._make_request = MagicMock(
             return_value={
@@ -100,10 +100,19 @@ class TestDeltaMethods:
         link = client.seed_delta_link("d1")
 
         assert link == "https://graph.microsoft.com/v1.0/drives/d1/root/delta?token=xyz"
-        url = client._make_request.call_args[0][0]
-        assert "delta" in url
-        params = client._make_request.call_args[0][1]
-        assert params["token"] == "latest"
+        
+        # Verify the call arguments (now using keyword arguments)
+        call_kwargs = client._make_request.call_args.kwargs
+        assert "delta" in call_kwargs["url"]
+        assert call_kwargs["params"]["token"] == "latest"
+        
+        # Verify Prefer header is passed with correct values
+        assert "extra_headers" in call_kwargs
+        assert "Prefer" in call_kwargs["extra_headers"]
+        prefer_header = call_kwargs["extra_headers"]["Prefer"]
+        assert "deltashowsharingchanges" in prefer_header
+        assert "deltashowremovedasdeleted" in prefer_header
+        assert "deltatraversepermissiongaps" in prefer_header
 
     def test_get_drive_delta_single_page(self):
         """get_drive_delta returns items and new delta link."""
