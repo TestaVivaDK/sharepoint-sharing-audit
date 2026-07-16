@@ -52,11 +52,10 @@ def delta_scan_drive(
     owner_email: str,
     tenant_domain: str,
     run_id: str,
-    prefer_deltashowsharingchanges: bool = False,
     ignore_sharepoint_groups: bool = False
 ) -> int:
     """Process delta changes for a single drive. Returns count of shared items found."""
-    items, new_delta_link = graph.get_drive_delta(delta_link, prefer_deltashowsharingchanges)
+    items, new_delta_link = graph.get_drive_delta(delta_link)
     logger.info(f"  Delta returned {len(items)} changed items")
 
     count = 0
@@ -65,21 +64,26 @@ def delta_scan_drive(
 
         # Handle deleted items
         if item.get("deleted"):
-            neo4j.remove_file_permissions(drive_id, item_id, run_id)
+            neo4j.remove_file_permissions_and_delete(drive_id, item_id, run_id)
             continue
 
         item_path = _item_path_from_delta(item)
         item_type = "Folder" if item.get("folder") else "File"
         web_url = item.get("webUrl", "")
 
-        # Content-only change: update file metadata and relationships
+        # Content change: update file metadata and site/drive relationships before processing permissions
         if not item.get("@microsoft.graph.sharedChanged"):
             neo4j.merge_file(drive_id, item_id, item_path, web_url, item_type)
             neo4j.merge_contains(site_id, drive_id, item_id)
             neo4j.mark_file_found(drive_id, item_id, run_id)
-            #continue
 
-        # Permission change: re-fetch and re-merge
+        # Step 1 : Delete all SHARED_WITH relations of the file object in the graph
+        try:
+            neo4j.remove_file_permissions(drive_id, item_id)
+        except Exception as e:
+            logger.warning(f"Could not remove SHARED_WITH relations for {item_path} in the graph: {e}")
+        
+        # Step2 : Permission re-fetch and re-merge
         try:
             permissions = graph.get_item_permissions(drive_id, item_id)
         except Exception as e:
@@ -140,7 +144,6 @@ def attempt_delta_scan(
     owner_email: str,
     tenant_domain: str,
     run_id: str,
-    prefer_deltashowsharingchanges: bool = False,
     ignore_sharepoint_groups: bool = False,
 ) -> tuple:
     """
@@ -162,7 +165,6 @@ def attempt_delta_scan(
             owner_email,
             tenant_domain,
             run_id,
-            prefer_deltashowsharingchanges,
             ignore_sharepoint_groups,
         )
         return (count, False)

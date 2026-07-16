@@ -2,14 +2,12 @@
 
 import logging
 
-import httpx
-
 from collector.graph_client import GraphClient
 from shared.neo4j_client import Neo4jClient
 from collector.onedrive import _walk_drive_items
 from collector.user_cache import UserCache
 from collector.neo4j_user_node import Neo4jUserNode
-from collector.delta import delta_scan_drive, attempt_delta_scan, seed_delta_link_safe
+from collector.delta import attempt_delta_scan, seed_delta_link_safe
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +20,6 @@ def collect_sharepoint_sites(
     tenant_domain: str,
     is_full: bool = True,
     ignore_sharepoint_groups: bool = False,
-    prefer_deltashowsharingchanges: bool = False,
 ) -> int:
     """Collect all sharing permissions across SharePoint sites. Returns total item count."""
     sites = graph.get_all_sites()
@@ -100,7 +97,6 @@ def collect_sharepoint_sites(
                         owner_email,
                         tenant_domain,
                         run_id,
-                        prefer_deltashowsharingchanges,
                     )
                     if needs_fallback:
                         logger.warning(

@@ -318,7 +318,7 @@ class GraphClient:
             raise ValueError(f"No deltaLink in response for drive {drive_id}")
         return delta_link
 
-    def get_drive_delta(self, delta_url: str, prefer_deltashowsharingchanges: bool=False) -> tuple[list[dict], str]:
+    def get_drive_delta(self, delta_url: str) -> tuple[list[dict], str]:
         """Follow a delta link, return (changed_items, new_delta_link).
 
         Uses Prefer headers to track permission changes and deleted items.
@@ -334,10 +334,8 @@ class GraphClient:
         delta_link = ""
 
         while url:
-            if(prefer_deltashowsharingchanges):
-                data = self._make_request(url, extra_headers={"Prefer": prefer})
-            else:
-                data = self._make_request(url)
+            data = self._make_request(url, extra_headers={"Prefer": prefer})
+
             items.extend(data.get("value", []))
             url = data.get("@odata.nextLink")
             if "@odata.deltaLink" in data:

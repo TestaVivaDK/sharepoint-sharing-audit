@@ -47,7 +47,8 @@ class TestDeltaScanDrive:
 
         assert count == 1
         graph.get_item_permissions.assert_called_once_with("drive-1", "item-1")
-        neo4j.merge_permission.assert_called_once()
+        neo4j.remove_file_permissions.assert_called_once_with("drive-1", "item-1")
+        graph.get_item_permissions.assert_called_once_with("drive-1", "item-1")
 
     def test_processes_deleted_item(self, mock_user_cache):
         """Items with deleted facet get permissions removed."""
@@ -73,7 +74,7 @@ class TestDeltaScanDrive:
         )
 
         assert count == 0
-        neo4j.remove_file_permissions.assert_called_once_with(
+        neo4j.remove_file_permissions_and_delete.assert_called_once_with(
             "drive-1", "item-1", "run-1"
         )
         graph.get_item_permissions.assert_not_called()
@@ -108,8 +109,8 @@ class TestDeltaScanDrive:
         )
 
         assert count == 0
-        graph.get_item_permissions.assert_not_called()
-        neo4j.merge_permission.assert_not_called()
+        graph.get_item_permissions.assert_called()
+        neo4j.remove_file_permissions_and_delete.assert_not_called()
         neo4j.merge_file.assert_called_once()
 
     def test_returns_new_delta_link(self, mock_user_cache):
@@ -176,6 +177,7 @@ class TestDeltaScanDrive:
             )
 
             assert count == 1
+            neo4j.remove_file_permissions.assert_called_once_with("drive-1", "item-1")
             mock_process_link.assert_called_once()
             # Verify call parameters: (perm, graph, user_cache, neo4j, item_metadata, run_id)
             call_args = mock_process_link.call_args
@@ -225,6 +227,7 @@ class TestDeltaScanDrive:
             )
 
             assert count == 1
+            neo4j.remove_file_permissions.assert_called_once_with("drive-1", "item-1")
             mock_process_group.assert_called_once()
             # Verify ignore_sharepoint_groups is passed correctly
             call_args = mock_process_group.call_args
@@ -270,6 +273,7 @@ class TestDeltaScanDrive:
             )
 
             assert count == 1
+            neo4j.remove_file_permissions.assert_called_once_with("drive-1", "item-1")
             mock_process_user.assert_called_once()
             # Verify user_cache is passed correctly
             call_args = mock_process_user.call_args
@@ -315,6 +319,7 @@ class TestDeltaScanDrive:
             )
 
             assert count == 0
+            neo4j.remove_file_permissions.assert_called_once_with("drive-1", "item-1")
             mock_process_user.assert_not_called()
 
 
@@ -441,7 +446,6 @@ class TestAttemptDeltaScan:
                 "owner@test.dk",
                 "test.dk",
                 "run-1",
-                prefer_deltashowsharingchanges=True,
                 ignore_sharepoint_groups=True,
             )
             

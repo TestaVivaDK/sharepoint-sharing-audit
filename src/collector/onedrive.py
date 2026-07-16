@@ -185,7 +185,6 @@ def collect_onedrive_user(
     run_id: str,
     tenant_domain: str,
     is_full: bool = True,
-    prefer_deltashowsharingchanges: bool = False
 ) -> int:
     """Collect all sharing permissions for one user's OneDrive. Returns item count."""
     upn = user["userPrincipalName"]
@@ -233,7 +232,6 @@ def collect_onedrive_user(
                 upn,
                 tenant_domain,
                 run_id,
-                prefer_deltashowsharingchanges,
                 ignore_sharepoint_groups=False
             )
             if needs_fallback:

@@ -368,7 +368,7 @@ class Neo4jClient:
         )
         return result[0]["deltaLink"] if result else None
 
-    def remove_file_permissions(self, drive_id: str, item_id: str, run_id: str):
+    def remove_file_permissions_and_delete(self, drive_id: str, item_id: str, run_id: str):
         """Remove sharing relationships and mark a deleted file."""
         self.execute(
             """MATCH (f:File {driveId: $driveId, itemId: $itemId})
@@ -376,6 +376,15 @@ class Neo4jClient:
                DELETE s
                SET f.deletedAt = datetime(), f.deletedByRunId = $runId""",
             {"driveId": drive_id, "itemId": item_id, "runId": run_id},
+        )
+        
+    def remove_file_permissions(self, drive_id: str, item_id: str):
+        """Remove sharing relationships"""
+        self.execute(
+            """MATCH (f:File {driveId: $driveId, itemId: $itemId})
+               OPTIONAL MATCH (f)-[s:SHARED_WITH]->()
+               DELETE s""",
+            {"driveId": drive_id, "itemId": item_id},
         )
 
     def remove_shared_with(self, drive_id: str, item_id: str):

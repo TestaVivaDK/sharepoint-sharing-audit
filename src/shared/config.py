@@ -41,10 +41,6 @@ class CollectorConfig:
         default_factory=lambda: os.environ.get("IGNORE_SHAREPOINT_GROUPS", "").lower()
         in ("1", "true", "yes")
     )
-    prefer_deltashowsharingchanges: bool = field(
-        default_factory=lambda: os.environ.get("PREFER_DELTASHOWSHARINGCHANGES", "").lower()
-        in ("1", "true", "yes")
-    )
 
 
 @dataclass(frozen=True)

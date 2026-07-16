@@ -91,7 +91,7 @@ def main():
                     f"[{i}/{len(users)}] OneDrive: {user.get('displayName', '?')} ({upn})"
                 )
                 count = collect_onedrive_user(
-                    graph, user_cache, neo4j, user, run_id, tenant_domain, is_full, config.prefer_deltashowsharingchanges
+                    graph, user_cache, neo4j, user, run_id, tenant_domain, is_full
                 )
                 total += count
         else:
@@ -106,7 +106,7 @@ def main():
                 logger.info("=== Skipping SharePoint groups. Only Microsoft Entra groups will be collected ===")
 
             sp_count = collect_sharepoint_sites(
-                graph, user_cache, neo4j, run_id, tenant_domain, is_full, ignore_sharepoint_groups, config.prefer_deltashowsharingchanges
+                graph, user_cache, neo4j, run_id, tenant_domain, is_full, ignore_sharepoint_groups
             )
             total += sp_count
         else:
