@@ -61,12 +61,12 @@ class GraphClient:
                 if attempt < 3 and e.response.status_code >= 500:
                     time.sleep(2**attempt)
                     continue
-                raise
+                raise RuntimeError(f"Graph request failed after retries: {url}")
             except httpx.RequestError:
-                if attempt < 4:
+                if attempt < 3:
                     time.sleep(2**attempt)
                     continue
-                raise
+                raise RuntimeError(f"Graph request failed after retries: {url}")
                 
         return {}
     
@@ -107,12 +107,12 @@ class GraphClient:
                 if attempt < 3 and e.response.status_code >= 500:
                     time.sleep(2**attempt)
                     continue
-                raise
+                raise RuntimeError("Graph batch request failed after retries")
             except httpx.RequestError:
-                if attempt < 4:
+                if attempt < 3:
                     time.sleep(2**attempt)
                     continue
-                raise
+                raise RuntimeError("Graph batch request failed after retries")
         return {}
 
     def _make_paged_request(self, url: str, params: dict | None = None) -> list[dict]:
