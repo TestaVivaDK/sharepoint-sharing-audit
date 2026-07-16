@@ -21,15 +21,18 @@ class GraphClient:
     def _get_token(self) -> str:
         """Get or refresh the access token."""
         if not self._token or time.time() >= self._token_expires_at - 300:
+            token = None
             for attempt in range(4):
                 try:
                     token = self._credential.get_token("https://graph.microsoft.com/.default")
                     break
                 except httpx.RequestError:
-                    if attempt < 4:
+                    if attempt < 3:
                         time.sleep(2**attempt)
                         continue
                     raise
+            if token is None:
+                raise RuntimeError("Failed to acquire Graph access token after retries")
             self._token = token.token
             self._token_expires_at = token.expires_on
         return self._token
