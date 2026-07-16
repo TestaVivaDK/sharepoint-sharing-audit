@@ -70,9 +70,7 @@ class GraphClient:
                 
         return {}
     
-    def _make_batch_request(
-        self, requests =List[Dict]
-    ) -> dict:
+    def _make_batch_request(self, requests: List[Dict[str, Any]]) -> dict:
         """Make a POST request to the Graph API batch endpoint."""
         url = "https://graph.microsoft.com/v1.0/$batch"
         headers = {"Authorization": f"Bearer {self._get_token()}"}
