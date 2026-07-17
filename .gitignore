@@ -19,6 +19,9 @@ build/
 .venv/
 venv/
 env/
+*.crt
+*.csr
+*.key
 
 # Reports (generated output)
 reports/
@@ -51,6 +54,7 @@ frontend/dist/
 .grepai/
 *.tmp
 *.log
+*.tar
 Invoke-SharingAudit.ps1
 .serena/
 src/sharing_audit.egg-info/
