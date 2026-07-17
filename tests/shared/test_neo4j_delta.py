@@ -34,7 +34,20 @@ class TestDeltaState:
     def test_remove_file_permissions(self):
         client = Neo4jClient.__new__(Neo4jClient)
         client.execute = MagicMock()
-        client.remove_file_permissions("drive-1", "item-1", "run-1")
+        client.remove_file_permissions("drive-1", "item-1")
+        client.execute.assert_called_once()
+        query = client.execute.call_args[0][0]
+        params = client.execute.call_args[0][1]
+        assert "SHARED_WITH" in query
+        assert "DELETE" in query
+        assert "deletedAt" not in query
+        assert params["driveId"] == "drive-1"
+        assert params["itemId"] == "item-1"
+
+    def test_remove_file_permissions_and_delete(self):
+        client = Neo4jClient.__new__(Neo4jClient)
+        client.execute = MagicMock()
+        client.remove_file_permissions_and_delete("drive-1", "item-1", "run-1")
         client.execute.assert_called_once()
         query = client.execute.call_args[0][0]
         assert "SHARED_WITH" in query

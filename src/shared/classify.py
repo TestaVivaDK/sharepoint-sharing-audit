@@ -71,6 +71,69 @@ LOW_RISK_EXTENSIONS = {
 }
 
 
+def determine_user_source(user: dict, tenant_domain: str = "") -> str:
+    """Determine user classification (Internal/External/Guest) per Microsoft Entra ID standards.
+    
+    Classification is based on Microsoft Graph userType field and identities array.
+    Per: https://learn.microsoft.com/en-us/entra/external-id/user-properties
+    
+    Args:
+        user: Graph API user object with fields {id, userType, identities, email, userPrincipalName}.
+        tenant_domain: Deprecated (kept for backward compatibility, not used in classification).
+        
+    Returns:
+        "Internal": userType == "Member"
+        "External": userType == "Guest" AND has identity with issuer == "ExternalAzureAD"
+        "Guest": userType == "Guest" AND does NOT have ExternalAzureAD issuer
+        "Unknown": userType missing or unrecognized
+        
+    Example:
+        >>> # Internal user
+        >>> user = {"id": "123", "email": "user@example.com", "userType": "Member", "identities": []}
+        >>> determine_user_source(user)
+        "Internal"
+        
+        >>> # External B2B guest
+        >>> guest_user = {
+        ...     "id": "456",
+        ...     "email": "guest@external.com",
+        ...     "userType": "Guest",
+        ...     "identities": [{"issuer": "ExternalAzureAD", "issuerAssignedId": "guest@external.com"}]
+        ... }
+        >>> determine_user_source(guest_user)
+        "External"
+        
+        >>> # Guest (non-B2B)
+        >>> guest_user = {
+        ...     "id": "789",
+        ...     "email": "guest@gmail.com",
+        ...     "userType": "Guest",
+        ...     "identities": []
+        ... }
+        >>> determine_user_source(guest_user)
+        "Guest"
+    """
+    # Primary: check userType field
+    user_type = user.get("userType", "").strip()
+    
+    # Internal users
+    if user_type == "Member":
+        return "Internal"
+    
+    # Guest or external users - check identity sources
+    if user_type == "Guest":
+        # Check if this is an ExternalAzureAD (B2B) identity
+        identities = user.get("identities", [])
+        for identity in identities:
+            if identity.get("issuer") == "ExternalAzureAD":
+                return "External"
+        # Guest without ExternalAzureAD issuer
+        return "Guest"
+    
+    # Unrecognized userType
+    return "Unknown"
+
+
 def get_sharing_type(permission: dict) -> str:
     """Classify a Graph API permission object into a sharing type string."""
     if "link" in permission:
@@ -117,34 +180,34 @@ def get_shared_with_info(permission: dict, tenant_domain: str) -> dict:
                 "shared_with_type": "Internal",
             }
 
-        identities_v2 = permission.get("grantedToIdentitiesV2", [])
-        if identities_v2:
-            names: list[str] = []
-            emails: list[str] = []
-            for identity in identities_v2:
-                user = identity.get("user", {})
-                email = user.get("email", "")
-                display = user.get("displayName", "")
-                if email:
-                    names.append(email)
-                    emails.append(email)
-                elif display:
-                    names.append(display)
-            shared_with = "; ".join(names)
+        # identities_v2 = permission.get("grantedToIdentitiesV2", [])
+        # if identities_v2:
+        #     names: list[str] = []
+        #     emails: list[str] = []
+        #     for identity in identities_v2:
+        #         user = identity.get("user", {})
+        #         email = user.get("email", "")
+        #         display = user.get("displayName", "")
+        #         if email:
+        #             names.append(email)
+        #             emails.append(email)
+        #         elif display:
+        #             names.append(display)
+        #     shared_with = "; ".join(names)
 
-            has_guest = any("#EXT#" in e for e in emails)
-            has_external = any(
-                tenant_domain and not e.endswith(f"@{tenant_domain}")
-                for e in emails
-                if "#EXT#" not in e
-            )
-            if has_guest:
-                shared_with_type = "Guest"
-            elif has_external:
-                shared_with_type = "External"
-            else:
-                shared_with_type = "Internal"
-            return {"shared_with": shared_with, "shared_with_type": shared_with_type}
+        #     has_guest = any("#EXT#" in e for e in emails)
+        #     has_external = any(
+        #         tenant_domain and not e.endswith(f"@{tenant_domain}")
+        #         for e in emails
+        #         if "#EXT#" not in e
+        #     )
+        #     if has_guest:
+        #         shared_with_type = "Guest"
+        #     elif has_external:
+        #         shared_with_type = "External"
+        #     else:
+        #         shared_with_type = "Internal"
+        #     return {"shared_with": shared_with, "shared_with_type": shared_with_type}
 
         return {
             "shared_with": "Specific people (details unavailable)",
@@ -152,17 +215,33 @@ def get_shared_with_info(permission: dict, tenant_domain: str) -> dict:
         }
 
     granted = permission.get("grantedToV2", {})
+    
     group = granted.get("group")
     if group:
         return {
+            "id": group.get("id", ""),
+            "displayName":group.get("displayName", ""),
+            "loginName": group.get("loginName", "").lower(),
             "shared_with": group.get("displayName", "Unknown Group"),
-            "shared_with_type": "Internal",
+            "shared_with_type": "Group",
         }
-
+    
+    site_group = granted.get("siteGroup")
+    if site_group:
+        return {
+            "id": site_group.get("id", ""),
+            "displayName":site_group.get("displayName", ""),
+            "loginName": site_group.get("loginName", "").lower(),
+            "shared_with": site_group.get("displayName", "Unknown Group"),
+            "shared_with_type": "sharePointGroup",
+        }
+    
     user = granted.get("user") or permission.get("grantedTo", {}).get("user")
     if user:
+        id = user.get("id", "")
         email = user.get("email", "")
         display = user.get("displayName", "Unknown User")
+        loginName = user.get("loginName", "").lower()
         shared_with = email or display
 
         if "#EXT#" in email:
@@ -171,9 +250,19 @@ def get_shared_with_info(permission: dict, tenant_domain: str) -> dict:
             shared_with_type = "External"
         else:
             shared_with_type = "Internal"
-        return {"shared_with": shared_with, "shared_with_type": shared_with_type}
+        return {
+            "id": id,
+            "displayName": display,
+            "loginName": loginName,
+            "shared_with": shared_with, 
+            "shared_with_type": shared_with_type
+        }
 
-    return {"shared_with": shared_with, "shared_with_type": shared_with_type}
+    return {
+        "id": "-",
+        "shared_with": shared_with, 
+        "shared_with_type": shared_with_type
+    }
 
 
 def is_sensitive_path(item_path: str) -> bool:
@@ -291,10 +380,3 @@ def is_teams_chat_file(item_path: str) -> bool:
             re.IGNORECASE,
         )
     )
-
-
-def get_granted_by(permission: dict) -> str:
-    """Extract who granted this permission. Returns email or empty string."""
-    granted_by = permission.get("grantedByV2", {}) or permission.get("grantedBy", {})
-    user = granted_by.get("user", {})
-    return user.get("email", "")

@@ -62,6 +62,7 @@ The goal is to get your tenant to a clean sharing baseline before you turn on AI
 | `User.Read.All` | Enumerate all users |
 | `Sites.Read.All` | Read all SharePoint sites and document libraries |
 | `Files.Read.All` | Read all OneDrive files and sharing permissions |
+| `Sites.FullControl.All`| Allows the app to have full control of all site collections without a signed in user. **Required to properly process permissions changes in delta scans.** If this permission is not granted, rely only on full scans (`FORCE_FULL_SCAN=true`) and purge neo4j database before each full scan |
 
 **Delegated permissions** (for the webapp — user-consented):
 
@@ -141,7 +142,12 @@ The frontend dev server (Vite) proxies `/api` requests to the backend on port 80
 | `NEO4J_PASSWORD` | required | Neo4j password |
 | `DELAY_MS` | `100` | Milliseconds between API calls |
 | `USERS_TO_AUDIT` | all users | Comma-separated UPNs to audit (e.g. `user@domain.com`) |
+| `SKIP_ONEDRIVE` | `false` | Set to `true` to skip OneDrive drives |
 | `SKIP_SHAREPOINT` | `false` | Set to `true` to skip SharePoint sites |
+| `IGNORE_SHAREPOINT_GROUPS` | `false` | Set to `true` to skip SharePoint groups and to collect only Microsoft Entra groups |
+| `FORCE_FULL_SCAN`| `false` | Set to `true` to force full scan and ignore delta scans |
+| `FULL_SCAN_INTERVAL_DAYS` | `7` | Number of days between forced full scans |
+| `LOG_LEVEL` | `INFO` | Collector log level |
 
 ### Reporter
 
@@ -152,6 +158,7 @@ The frontend dev server (Vite) proxies `/api` requests to the backend on port 80
 | `NEO4J_PASSWORD` | required | Neo4j password |
 | `TENANT_DOMAIN` | — | Your tenant domain (e.g. `contoso.com`) for internal/external classification |
 | `REPORT_OUTPUT_DIR` | `./reports` | Directory for generated reports |
+| `CUSTOM_NEO4J_WHERE_FILTER` | `Optional variable` | Custom NEO4J WHERE clause to select only a subset of data to be included in the reports.  |
 
 ### Webapp
 
@@ -255,19 +262,52 @@ These are matched case-insensitively against the full file path (both folder nam
 
 ## Data Model (Neo4j)
 
+### Data Model
+
 ```
 (:User)-[:OWNS]->(:Site)-[:CONTAINS]->(:File)
 (:File)-[:SHARED_WITH {riskLevel, sharingType, role, grantedBy, ...}]->(:User)
+(:File)-[:SHARED_WITH {riskLevel, sharingType, role, grantedBy, ...}]->(:Group)->[:CONTAINS*0..]->(:User)
 (:ScanRun)-[:FOUND]->(:File)
 ```
 
-- **User** — email, displayName, source
+- **User** — id, email, displayName, source
+- **Group** — id, displayName, source
 - **Site** — OneDrive or SharePoint site (siteId, name, webUrl, source)
 - **File** — driveId, itemId, path, webUrl, type (File/Folder)
 - **SHARED_WITH** — sharing relationship: sharingType, sharedWithType, role, riskLevel, createdDateTime, grantedBy, lastSeenRunId
 - **ScanRun** — collection run with runId, timestamp, and status
 
 The `grantedBy` field on `SHARED_WITH` stores the email of the user who created the sharing permission (extracted from Graph API's `grantedByV2`). This is used by the webapp to show each user only the files they personally shared.
+
+### Advanced Neo4j queries
+
+Find all files shared with external users :
+
+```cypher
+MATCH path = (f:File)-[:SHARED_WITH]->()-[:CONTAINS*0..]->(u:User {source:"External"})
+RETURN path
+```
+
+Find all files shared with external users and exclude a specific domain:
+
+```cypher
+MATCH path = (f:File)-[:SHARED_WITH]->()-[:CONTAINS*0..]->(u:User
+ {source:"External"})
+WITH path, f, collect(u) AS users
+WHERE NONE(x IN users WHERE x.email CONTAINS "@specific-domain-excluded.com")
+RETURN path
+```
+
+Find all files shared with more than 20 users:
+
+```cypher
+MATCH path = (f:File)-[r:SHARED_WITH]->()-[:CONTAINS*0..]->(u:User)
+WITH f, count(r) AS n, collect(u.email) AS users, collect(path) as paths
+WHERE n > 20
+RETURN f.path, users, n, paths
+ORDER BY n DESC
+```
 
 ## Helm Chart (Kubernetes)
 

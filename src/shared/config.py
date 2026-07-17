@@ -37,6 +37,10 @@ class CollectorConfig:
     full_scan_interval_days: int = field(
         default_factory=lambda: int(os.environ.get("FULL_SCAN_INTERVAL_DAYS", "7"))
     )
+    ignore_sharepoint_groups: bool = field(
+        default_factory=lambda: os.environ.get("IGNORE_SHAREPOINT_GROUPS", "").lower()
+        in ("1", "true", "yes")
+    )
 
 
 @dataclass(frozen=True)
@@ -47,6 +51,9 @@ class ReporterConfig:
     )
     output_dir: str = field(
         default_factory=lambda: os.environ.get("REPORT_OUTPUT_DIR", "./reports")
+    )
+    custom_neo4j_where_filter: str = field(
+        default_factory=lambda: os.environ.get("CUSTOM_NEO4J_WHERE_FILTER", "")
     )
     webapp_url: str = field(default_factory=lambda: os.environ.get("WEBAPP_URL", ""))
 

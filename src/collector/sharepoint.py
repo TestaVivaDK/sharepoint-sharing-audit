@@ -2,22 +2,24 @@
 
 import logging
 
-import httpx
-
 from collector.graph_client import GraphClient
 from shared.neo4j_client import Neo4jClient
 from collector.onedrive import _walk_drive_items
-from collector.delta import delta_scan_drive
+from collector.user_cache import UserCache
+from collector.neo4j_user_node import Neo4jUserNode
+from collector.delta import attempt_delta_scan, seed_delta_link_safe
 
 logger = logging.getLogger(__name__)
 
 
 def collect_sharepoint_sites(
     graph: GraphClient,
+    user_cache: UserCache,
     neo4j: Neo4jClient,
     run_id: str,
     tenant_domain: str,
     is_full: bool = True,
+    ignore_sharepoint_groups: bool = False,
 ) -> int:
     """Collect all sharing permissions across SharePoint sites. Returns total item count."""
     sites = graph.get_all_sites()
@@ -51,16 +53,32 @@ def collect_sharepoint_sites(
             # Determine owner (best effort)
             owner_email = ""
             owner = drive.get("owner", {})
-            if owner.get("user", {}).get("email"):
-                owner_email = owner["user"]["email"]
-                neo4j.merge_user(
-                    owner_email, owner["user"].get("displayName", ""), "internal"
-                )
-                neo4j.merge_owns(owner_email, site_id)
+
+            if owner.get("user", {}).get("id"):
+                user_id = owner.get("user", {}).get("id")
+                user_data = user_cache.get(user_id)      
+                if not user_data:
+                    logger.warning(f"Drive owner id {user_id} not found for drive {drive}")
+                else:
+                    owner_email = user_data.get("email", "")
+
+                # Create user node and establish ownership
+                owner_user = Neo4jUserNode(user_data, source="Internal")  # Drive owner is always internal
+                owner_user.merge_as_site_owner(neo4j, site_id)
+                
+            elif owner.get("group", {}).get("id"):
+                group_id = owner.get("group", {}).get("id")
+                group_owners = graph.get_group_owners(group_id)
+                
+                if len(group_owners) > 0:
+                    owner_email = group_owners[0].get("mail")
+                    owner_user = Neo4jUserNode(group_owners[0], source="Internal")  # Drive owner is always internal
+                    owner_user.merge_as_site_owner(neo4j, site_id)
 
             if is_full:
                 count = _walk_drive_items(
                     graph,
+                    user_cache,
                     neo4j,
                     drive_id,
                     "root",
@@ -69,58 +87,46 @@ def collect_sharepoint_sites(
                     owner_email,
                     tenant_domain,
                     run_id,
+                    ignore_sharepoint_groups,
                 )
-                try:
-                    link = graph.seed_delta_link(drive_id)
-                    neo4j.save_delta_link(drive_id, link)
-                except Exception as e:
-                    logger.warning(
-                        f"Could not seed delta link for drive {drive_id}: {e}"
-                    )
+                seed_delta_link_safe(graph, neo4j, drive_id, f"site {site_name}")
             else:
                 delta_link = neo4j.get_delta_link(drive_id)
                 if delta_link:
-                    try:
-                        count = delta_scan_drive(
+                    count, needs_fallback = attempt_delta_scan(
+                        graph,
+                        user_cache,
+                        neo4j,
+                        drive_id,
+                        delta_link,
+                        site_id,
+                        owner_email,
+                        tenant_domain,
+                        run_id,
+                    )
+                    if needs_fallback:
+                        logger.warning(
+                            f"Delta link expired for drive {drive_id}, "
+                            "falling back to full walk"
+                        )
+                        count = _walk_drive_items(
                             graph,
+                            user_cache,
                             neo4j,
                             drive_id,
-                            delta_link,
+                            "root",
+                            "",
                             site_id,
                             owner_email,
                             tenant_domain,
                             run_id,
+                            ignore_sharepoint_groups
                         )
-                    except httpx.HTTPStatusError as e:
-                        if e.response.status_code in (410, 404):
-                            logger.warning(
-                                f"Delta link expired for drive {drive_id}, "
-                                "falling back to full walk"
-                            )
-                            count = _walk_drive_items(
-                                graph,
-                                neo4j,
-                                drive_id,
-                                "root",
-                                "",
-                                site_id,
-                                owner_email,
-                                tenant_domain,
-                                run_id,
-                            )
-                            try:
-                                link = graph.seed_delta_link(drive_id)
-                                neo4j.save_delta_link(drive_id, link)
-                            except Exception as ex:
-                                logger.warning(
-                                    f"Could not seed delta link for drive {drive_id}: {ex}"
-                                )
-                        else:
-                            raise
                 else:
                     logger.info(f"  No delta link for drive {drive_id} — full walk")
                     count = _walk_drive_items(
                         graph,
+                        user_cache,
                         neo4j,
                         drive_id,
                         "root",
@@ -129,14 +135,10 @@ def collect_sharepoint_sites(
                         owner_email,
                         tenant_domain,
                         run_id,
+                        ignore_sharepoint_groups
                     )
-                    try:
-                        link = graph.seed_delta_link(drive_id)
-                        neo4j.save_delta_link(drive_id, link)
-                    except Exception as e:
-                        logger.warning(
-                            f"Could not seed delta link for drive {drive_id}: {e}"
-                        )
+                
+                seed_delta_link_safe(graph, neo4j, drive_id, f"site {site_name}")
 
             total += count
 
