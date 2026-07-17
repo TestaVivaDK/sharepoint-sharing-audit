@@ -25,7 +25,7 @@ def get_user_files(client: Neo4jClient, email: str) -> list[dict]:
     """Get shared files where the current user granted the sharing permission."""
     result = client.execute(
         """
-        MATCH (f:File)-[s:SHARED_WITH {grantedBy: $email}]->(shared_user:User)
+        MATCH (f:File)-[s:SHARED_WITH {grantedBy: $email}]->(i)-[:CONTAINS*0..]->(shared_user:User)
         WHERE f.deletedAt IS NULL
         MATCH (site:Site)-[:CONTAINS]->(f)
         RETURN
