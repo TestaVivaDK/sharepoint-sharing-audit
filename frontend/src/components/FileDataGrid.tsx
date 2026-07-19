@@ -1,5 +1,5 @@
-import { DataGridPro } from '@mui/x-data-grid-pro'
-import type { GridColDef, GridRowSelectionModel } from '@mui/x-data-grid-pro'
+import CustomDataGrid from './CustomDataGrid'
+import type { GridColDef, GridRowSelectionModel } from '@mui/x-data-grid'
 import { Chip, Link } from '@mui/material'
 import type { SharedFile } from '../api/types'
 
@@ -37,7 +37,7 @@ interface Props {
 
 export function FileDataGrid({ files, loading, selectedIds, onSelectionChange }: Props) {
   return (
-    <DataGridPro
+    <CustomDataGrid
       rows={files}
       columns={columns}
       loading={loading}

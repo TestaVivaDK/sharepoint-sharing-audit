@@ -14,11 +14,12 @@ def get_latest_completed_run(client: Neo4jClient) -> str | None:
     return result[0]["runId"] if result else None
 
 
-def get_sharing_data(client: Neo4jClient, run_id: str) -> list[dict]:
+def get_sharing_data(client: Neo4jClient, run_id: str, neo4j_custom_filter: str="") -> list[dict]:
     """Get all sharing records for a given scan run, enriched with owner/site info."""
     result = client.execute(
-        """
-        MATCH (f:File)-[s:SHARED_WITH {lastSeenRunId: $runId}]->(u:User)
+        f"""
+        MATCH (f:File)-[s:SHARED_WITH {{lastSeenRunId: $runId}}]->(i)-[:CONTAINS*0..]->(u:User)
+        {neo4j_custom_filter}
         MATCH (site:Site)-[:CONTAINS]->(f)
         OPTIONAL MATCH (owner:User)-[:OWNS]->(site)
         RETURN
@@ -28,9 +29,9 @@ def get_sharing_data(client: Neo4jClient, run_id: str) -> list[dict]:
             f.webUrl AS item_web_url,
             f.type AS item_type,
             s.sharingType AS sharing_type,
-            u.email AS shared_with,
-            u.displayName AS shared_with_name,
-            s.sharedWithType AS shared_with_type,
+            i.displayName AS shared_with,
+            collect(u.email) AS shared_with_name,
+            u.source AS shared_with_type,
             s.role AS role,
             s.createdDateTime AS created_date_time,
             s.grantedBy AS granted_by,

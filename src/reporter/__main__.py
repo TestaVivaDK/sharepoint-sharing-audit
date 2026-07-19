@@ -31,7 +31,20 @@ def main():
         return
 
     logger.info(f"Generating reports for scan run: {run_id}")
-    all_records = get_sharing_data(neo4j, run_id)
+    
+    # Log neo4j custom filter if it exists    
+    if config.custom_neo4j_where_filter:
+        logger.info(f"Applying custom NEO4J _filter: {config.custom_neo4j_where_filter}")
+    
+    # Get sharing data from neo4j
+    try:
+        all_records = get_sharing_data(neo4j, run_id, config.custom_neo4j_where_filter)
+    except Exception as e:
+        logger.error(f"Error when querying NEO4J: {e}")
+        if config.custom_neo4j_where_filter:
+            logger.error(f"Check CUSTOM_NEO4J_WHERE_FILTER syntax: {config.custom_neo4j_where_filter}")
+        exit()
+        
     logger.info(f"Total sharing records (raw): {len(all_records)}")
 
     if not all_records:

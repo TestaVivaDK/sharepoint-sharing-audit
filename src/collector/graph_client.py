@@ -4,11 +4,11 @@ import logging
 import time
 
 from azure.identity import ClientSecretCredential
+from typing import Any, Dict, List, Optional, Tuple
 import httpx
 
 logger = logging.getLogger(__name__)
-
-
+logging.getLogger("httpx").setLevel(logging.WARNING)
 class GraphClient:
     def __init__(
         self, tenant_id: str, client_id: str, client_secret: str, delay_ms: int = 100
@@ -21,7 +21,18 @@ class GraphClient:
     def _get_token(self) -> str:
         """Get or refresh the access token."""
         if not self._token or time.time() >= self._token_expires_at - 300:
-            token = self._credential.get_token("https://graph.microsoft.com/.default")
+            token = None
+            for attempt in range(4):
+                try:
+                    token = self._credential.get_token("https://graph.microsoft.com/.default")
+                    break
+                except httpx.RequestError:
+                    if attempt < 3:
+                        time.sleep(2**attempt)
+                        continue
+                    raise
+            if token is None:
+                raise RuntimeError("Failed to acquire Graph access token after retries")
             self._token = token.token
             self._token_expires_at = token.expires_on
         return self._token
@@ -50,7 +61,58 @@ class GraphClient:
                 if attempt < 3 and e.response.status_code >= 500:
                     time.sleep(2**attempt)
                     continue
-                raise
+                raise RuntimeError(f"Graph request failed after retries: {url}")
+            except httpx.RequestError:
+                if attempt < 3:
+                    time.sleep(2**attempt)
+                    continue
+                raise RuntimeError(f"Graph request failed after retries: {url}")
+                
+        return {}
+    
+    def _make_batch_request(self, requests: List[Dict[str, Any]]) -> dict:
+        """Make a POST request to the Graph API batch endpoint."""
+        url = "https://graph.microsoft.com/v1.0/$batch"
+        headers = {"Authorization": f"Bearer {self._get_token()}"}
+        batch_request_body = {"requests": requests }
+        
+        for attempt in range(4):
+            try:
+                resp = httpx.post(url, headers=headers, json=batch_request_body, timeout=30)
+                resp.raise_for_status()
+                resp_data = resp.json()
+                
+                # Requests in a batch are evaluated individually against the applicable throttling limits
+                # If any request exceeds the limits, it fails with a status of 429
+                retry_after = 0
+                for r in resp_data["responses"]:
+                    if r["status"] == 429:
+                        if "Retry-After" in r["headers"]:
+                            retry_after = max(retry_after, int(r["headers"]["Retry-After"]))
+                        else:
+                            retry_after = max(retry_after, 5**attempt)
+                    elif attempt < 3 and r["status"] >= 500:
+                        retry_after = max(retry_after, 5**attempt)
+
+                if retry_after > 0:
+                    logger.warning(f"Rate limited. Waiting {retry_after}s...")
+                    time.sleep(retry_after)
+                    continue
+
+                return resp_data
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 401:
+                    self._token = None
+                    continue
+                if attempt < 3 and e.response.status_code >= 500:
+                    time.sleep(2**attempt)
+                    continue
+                raise RuntimeError("Graph batch request failed after retries")
+            except httpx.RequestError:
+                if attempt < 3:
+                    time.sleep(2**attempt)
+                    continue
+                raise RuntimeError("Graph batch request failed after retries")
         return {}
 
     def _make_paged_request(self, url: str, params: dict | None = None) -> list[dict]:
@@ -102,6 +164,18 @@ class GraphClient:
             if u.get("accountEnabled") and u.get("assignedLicenses")
         ]
 
+    def get_user_id(self, user_principal_name: str) -> str | None:
+        """Get user id when knowing only userPrincipalName."""
+        try:
+            user = self._make_request(
+                f"https://graph.microsoft.com/v1.0/users/{user_principal_name}"
+            )
+            logger.info(user)
+            return user["id"]
+        except Exception as e:
+            logger.warning(f"No user {user_principal_name} found: {e}")
+            return None
+
     def get_user_drive(self, user_id: str) -> dict | None:
         """Get a user's default OneDrive drive."""
         try:
@@ -146,12 +220,99 @@ class GraphClient:
                 or p.get("inheritedFrom", {}).get("path")
             )
         ]
+    
+    def batch_get_item_permissions(self, drive_id: str, items: list[dict]) -> Dict:
+        """Get non-inherited permissions for a batch of drive item."""
+        # Prepare MS Graph batch query
+        requests = []
+        results = {}
+        for item in items:
+            item_id = item["id"]
+            requests.append({
+                "id": item_id,
+                "method": "GET",
+                "url": f"drives/{drive_id}/items/{item_id}/permissions"
+            })
+            results[item_id] = {"data": item}
 
+        data = self._make_batch_request(requests)
+
+        if data.get("responses"):
+            for resp in data["responses"]:
+                resp_item_id = resp["id"]
+
+                item_permissions = []
+                resp_body_value = resp.get("body", {}).get("value")
+                if resp_body_value:
+                    for p in resp_body_value:
+                        if not (p.get("inheritedFrom", {}).get("driveId") or p.get("inheritedFrom", {}).get("path")):
+                            item_permissions.append(p)
+
+                results[resp_item_id]["permissions"] = item_permissions
+
+        logger.debug(results)
+        return results
+    
+    def batch_get_users(self, user_ids: list[str]) -> Dict[str, Dict[str, Any]]:
+        """Batch-fetch user details by user ID.
+        
+        Args:
+            user_ids: List of user IDs to fetch (max 20 per batch).
+            
+        Returns:
+            Dict mapping user_id -> {id, email, displayName, userType, ...}.
+            Missing or inaccessible users are excluded from result.
+        """
+        if not user_ids:
+            return {}
+        
+        requests = []
+        results = {}
+        
+        # Batch up to 20 users per request
+        for user_id in user_ids:
+            requests.append({
+                "id": user_id,
+                "method": "GET",
+                "url": f"users/{user_id}?$select=id,mail,userPrincipalName,displayName,userType,identities"
+            })
+            results[user_id] = None
+        
+        data = self._make_batch_request(requests)
+        
+        for resp in data.get("responses", []):
+            user_id = resp["id"]
+            if resp["status"] == 200:
+                user_data = resp.get("body", {})
+                results[user_id] = {
+                    "id": user_data.get("id", ""),
+                    "email": user_data.get("mail") or user_data.get("email", ""),
+                    "userPrincipalName": user_data.get("userPrincipalName", ""),
+                    "displayName": user_data.get("displayName", ""),
+                    "userType": user_data.get("userType", "Member"),
+                    "identities": user_data.get("identities", []),
+                }
+            elif resp["status"] == 404:
+                logger.debug(f"User {user_id} not found in Graph API")
+                results[user_id] = None
+            else:
+                logger.warning(f"Error fetching user {user_id}: status {resp['status']}")
+                results[user_id] = None
+        
+        # Return only successfully fetched users
+        return {uid: data for uid, data in results.items() if data is not None}
+    
     def seed_delta_link(self, drive_id: str) -> str:
         """Get initial delta link for a drive without enumerating items."""
+        prefer = (
+            "deltashowsharingchanges, deltashowremovedasdeleted, "
+            "deltatraversepermissiongaps"
+        )
+        
         data = self._make_request(
-            f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root/delta",
-            {"token": "latest"},
+            url=f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root/delta",
+            params={"token": "latest"},
+            extra_headers={"Prefer": prefer},
         )
         delta_link = data.get("@odata.deltaLink")
         if not delta_link:
@@ -168,12 +329,14 @@ class GraphClient:
             "deltashowsharingchanges, deltashowremovedasdeleted, "
             "deltatraversepermissiongaps"
         )
+
         items: list[dict] = []
         url: str | None = delta_url
         delta_link = ""
 
         while url:
             data = self._make_request(url, extra_headers={"Prefer": prefer})
+
             items.extend(data.get("value", []))
             url = data.get("@odata.nextLink")
             if "@odata.deltaLink" in data:
@@ -182,6 +345,71 @@ class GraphClient:
                 time.sleep(self.delay_ms / 1000)
 
         return items, delta_link
+
+    def get_group_members(self, group_id: str) -> List[Dict[str, Any]]:
+        """
+        Retrieve members of a specific group.
+        
+        Args:
+            group_id: The group ID in Entra ID.
+            
+        Returns:
+            List[Dict[str, Any]]: List of member objects with id, mail,
+                userPrincipalName, displayName, and userType.
+                
+        Raises:
+            RuntimeError: If the API request fails.
+            
+        Example:
+            >>> api = SharePointGraphAPI(client)
+            >>> members = api.get_group_members("group-id")
+            >>> for member in members:
+            >>>     print(f"Member: {member['displayName']}")
+        """
+        logger.debug(f"GRAPH CLIENT - Retrieving members for group: {group_id}")
+        try:
+            members = self._make_paged_request(
+                url=f"https://graph.microsoft.com/v1.0/groups/{group_id}/members",
+                params={"$select": "id,mail,userPrincipalName,displayName,userType,identities"}
+            )
+            logger.debug(f"Retrieved {len(members)} members for group {group_id}")
+            return members
+        except Exception as e:
+            logger.error(f"Failed to retrieve members for group {group_id}: {e}")
+            return []
+    
+    
+    def get_group_owners(self, group_id: str) -> List[Dict[str, Any]]:
+        """
+        Retrieve the owner(s) of a Microsoft Entra ID group.
+        
+        Args:
+            group_id: The group ID in Entra ID.
+            
+        Returns:
+            List[Dict[str, Any]]: List of owner objects with id, mail,
+                userPrincipalName, displayName, and userType.
+                
+        Raises:
+            RuntimeError: If the API request fails.
+            
+        Example:
+            >>> api = SharePointGraphAPI(client)
+            >>> owners = api.get_group_owner("group-id")
+            >>> for owner in owners:
+            >>>     print(f"Owner: {owner['displayName']}")
+        """
+        logger.debug(f"Retrieving owners for group: {group_id}")
+        try:
+            owners = self._make_paged_request(
+                url=f"https://graph.microsoft.com/v1.0/groups/{group_id}/owners",
+                params={"$select": "id,mail,userPrincipalName,displayName,userType,identities"}
+            )
+            logger.debug(f"Retrieved {len(owners)} owner(s) for group {group_id}")
+            return owners
+        except Exception as e:
+            logger.error(f"Failed to retrieve owners for group {group_id}: {e}")
+            return []
 
     def throttle(self):
         """Pause between API calls."""

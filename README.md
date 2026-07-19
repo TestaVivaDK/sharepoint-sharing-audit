@@ -17,26 +17,33 @@ The goal is to get your tenant to a clean sharing baseline before you turn on AI
 ## Architecture
 
 ```
-┌─────────────┐      Microsoft       ┌─────────┐      ┌──────────┐
-│  Collector   │─────Graph API───────▶│  Neo4j  │◀─────│ Reporter │
-│  (Python)    │   app-only auth      │  (graph │      │ (Python) │
-│              │   OneDrive + SP      │   DB)   │      │          │
-└─────────────┘   permissions         └─────────┘      └────┬─────┘
-                                           ▲                 │
-                                           │          ┌──────┴──────┐
-                                      ┌────┴─────┐   │  PDF + CSV  │
-                                      │  Webapp   │   │   reports   │
-                                      │ FastAPI + │   └─────────────┘
-                                      │  React    │
-                                      └──────────┘
-                                       delegated
-                                       auth (MSAL)
+┌─────────────┐      Microsoft        ┌────────────┐      ┌──────────┐
+│  Collector  │──────Graph API───────▶│  Neo4j     │◀────│ Reporter │
+│  (Python)   │    app-only auth      │  (graph    │      │ (Python) │
+│             │    OneDrive + SP      │   DB)      │      │          │
+└─────────────┘   permissions         └────────────┘      └─────┬────┘
+                                        ▲       ▲               │
+                                        │       │            ┌──┴──────────┐
+                                        │  ┌────┴────────┐   │  PDF + CSV  │
+                                        │  │  Webapp     │   │   reports   │
+                                        │  │  FastAPI +  │   └─────────────┘
+                                        │  │  React      │
+                                        │  └─────────────┘
+                                        │   delegated   ▲
+                                        │   auth (MSAL) │
+                                        │               │               
+                                   ┌────┴───────────────────┐
+                                   │  Apache2 reverse-proxy │
+                                   │        Port 443        │
+                                   │                        │
+                                   └────────────────────────┘
 ```
 
 - **Collector** — Walks OneDrive and SharePoint drives via Microsoft Graph API, collects all explicit (non-inherited) sharing permissions, and stores them as a graph in Neo4j. Tracks who granted each permission via `grantedBy`.
 - **Reporter** — Queries Neo4j, deduplicates files, computes risk scores (0–100), and generates a combined PDF + CSV report for admins.
 - **Webapp** — React SPA with FastAPI backend. Users log in with their Microsoft Entra account, see only the files *they* shared (via `grantedBy`), and can bulk-unshare via the Graph API using delegated permissions.
 - **Neo4j** — Stores users, files, sites, and sharing relationships as a graph. Supports incremental collection with scan runs.
+- **Apache2 reverse-proxy**: The Apache2 container acts as a secure reverse proxy (SSL/TLS termination) and routes traffic to webapp and neo4j admin interfaces.
 
 ## Prerequisites
 
@@ -62,6 +69,7 @@ The goal is to get your tenant to a clean sharing baseline before you turn on AI
 | `User.Read.All` | Enumerate all users |
 | `Sites.Read.All` | Read all SharePoint sites and document libraries |
 | `Files.Read.All` | Read all OneDrive files and sharing permissions |
+| `Sites.FullControl.All`| Allows the app to have full control of all site collections without a signed in user. **Required to properly process permissions changes in delta scans.** If this permission is not granted, rely only on full scans (`FORCE_FULL_SCAN=true`) and purge neo4j database before each full scan |
 
 **Delegated permissions** (for the webapp — user-consented):
 
@@ -141,7 +149,12 @@ The frontend dev server (Vite) proxies `/api` requests to the backend on port 80
 | `NEO4J_PASSWORD` | required | Neo4j password |
 | `DELAY_MS` | `100` | Milliseconds between API calls |
 | `USERS_TO_AUDIT` | all users | Comma-separated UPNs to audit (e.g. `user@domain.com`) |
+| `SKIP_ONEDRIVE` | `false` | Set to `true` to skip OneDrive drives |
 | `SKIP_SHAREPOINT` | `false` | Set to `true` to skip SharePoint sites |
+| `IGNORE_SHAREPOINT_GROUPS` | `false` | Set to `true` to skip SharePoint groups and to collect only Microsoft Entra groups |
+| `FORCE_FULL_SCAN`| `false` | Set to `true` to force full scan and ignore delta scans |
+| `FULL_SCAN_INTERVAL_DAYS` | `7` | Number of days between forced full scans |
+| `LOG_LEVEL` | `INFO` | Collector log level |
 
 ### Reporter
 
@@ -152,6 +165,7 @@ The frontend dev server (Vite) proxies `/api` requests to the backend on port 80
 | `NEO4J_PASSWORD` | required | Neo4j password |
 | `TENANT_DOMAIN` | — | Your tenant domain (e.g. `contoso.com`) for internal/external classification |
 | `REPORT_OUTPUT_DIR` | `./reports` | Directory for generated reports |
+| `CUSTOM_NEO4J_WHERE_FILTER` | `Optional variable` | Custom NEO4J WHERE clause to select only a subset of data to be included in the reports.  |
 
 ### Webapp
 
@@ -172,13 +186,99 @@ The frontend also needs `VITE_CLIENT_ID` and `VITE_TENANT_ID` at build time (set
 Run the full pipeline with Docker:
 
 ```bash
-docker compose up neo4j -d        # Start Neo4j
+docker compose up neo4j -d         # Start Neo4j
 docker compose run collector       # Run collection
 docker compose run reporter        # Generate reports
 docker compose up webapp -d        # Start the webapp on port 8000
+docker compose up -d apache2          # Start the apache2 reverse proxy listening on port 80 and 443
 ```
 
 Reports are saved to the `./reports/` directory.
+
+### Apache2 Reverse Proxy
+
+The Apache2 container acts as a secure reverse proxy (SSL/TLS termination) and routes traffic to multiple backend services. It enables:
+
+- **HTTPS encryption** for the webapp and Neo4j services
+- **Name-based virtual hosting** with separate FQDNs for each service
+- **WebSocket proxying** for Neo4j Bolt protocol connections
+- **IP-based access restrictions** for sensitive Neo4j interfaces
+
+#### Architecture
+
+The Apache2 container exposes three virtual hosts on port 443 (HTTPS):
+
+| Virtual Host | Backend | Purpose | Env Var |
+|--------------|---------|---------|---------|
+| `WEBAPP_FQDN` | `webapp:8000` | Main sharing audit web application | `WEBAPP_FQDN` |
+| `NEO4J_BROWSER_FQDN` | `neo4j:7474/browser` | Neo4j Browser UI (admin interface) | `NEO4J_BROWSER_FQDN` |
+| `NEO4J_BOLT_FQDN` | `neo4j:7687` | Neo4j Bolt protocol (WebSocket) | `NEO4J_BOLT_FQDN` |
+
+#### Environment Variables
+
+| Variable | Required | Description | Example |
+|----------|----------|-------------|---------|
+| `WEBAPP_FQDN` | Yes | Fully qualified domain name for the webapp | `audit.contoso.com` |
+| `NEO4J_BROWSER_FQDN` | Yes | FQDN for Neo4j Browser UI | `neo4j-browser.contoso.com` |
+| `NEO4J_BOLT_FQDN` | Yes | FQDN for Neo4j Bolt protocol (used by Neo4j Browser) | `neo4j-bolt.contoso.com` |
+| `NEO4J_ADMIN_RESTRICTED_IP` | Yes | IP address or CIDR range allowed to access Neo4j admin interfaces | `203.0.113.42` or `203.0.113.0/24` |
+
+#### SSL Certificates
+
+The container requires self-signed or CA-signed SSL certificates:
+
+```bash
+# Generate self-signed certificates (for testing only)
+openssl req -x509 -newkey rsa:2048 -keyout apache2/server.key -out apache2/server.crt -days 365 -nodes
+
+# For production, obtain certificates from a trusted CA
+# and place them in apache2/server.crt and apache2/server.key
+```
+
+Certificates are mounted into the container at:
+- `/usr/local/apache2/conf/server.crt` — certificate file
+- `/usr/local/apache2/conf/server.key` — private key
+
+#### Entrypoint Behavior
+
+The container's entrypoint script (`apache2/entrypoint.sh`) performs **environment variable substitution** at startup:
+
+1. Replaces `__WEBAPP_FQDN__` with the value of `WEBAPP_FQDN`
+2. Replaces `__NEO4J_BROWSER_FQDN__` with the value of `NEO4J_BROWSER_FQDN`
+3. Replaces `__NEO4J_BOLT_FQDN__` with the value of `NEO4J_BOLT_FQDN`
+4. Replaces `__NEO4J_ADMIN_RESTRICTED_IP__` with the value of `NEO4J_ADMIN_RESTRICTED_IP`
+5. Starts Apache2 in foreground mode
+
+This allows the configuration to be dynamically adapted at runtime without rebuilding the container.
+
+#### Security
+
+- **IP Restriction** — Access to Neo4j Browser and Bolt proxy is restricted to the IP(s) specified in `NEO4J_ADMIN_RESTRICTED_IP`
+- **TLS/SSL** — All traffic uses TLS 1.2+ (SSLv3 and TLS 1.0/1.1 are disabled)
+- **Cipher Suites** — HIGH and MEDIUM strength ciphers only; weak ciphers (MD5, RC4, 3DES) are disabled
+- **Proxy Security** — `ProxyRequests Off` prevents open proxy exploitation
+
+#### Usage Example
+
+```bash
+# Set environment variables in .env
+export WEBAPP_FQDN=audit.contoso.com
+export NEO4J_BROWSER_FQDN=neo4j-browser.contoso.com
+export NEO4J_BOLT_FQDN=neo4j-bolt.contoso.com
+export NEO4J_ADMIN_RESTRICTED_IP=203.0.113.42
+
+# Generate self-signed certificates
+openssl req -x509 -newkey rsa:2048 -keyout apache2/server.key -out apache2/server.crt -days 365 -nodes
+
+# Start the stack
+docker compose up neo4j webapp apache2
+```
+
+Once running, access:
+- **Webapp** — `https://audit.contoso.com`
+- **Neo4j Browser** — `https://neo4j-browser.contoso.com/browser` (restricted to `203.0.113.42`)
+- **Neo4j Bolt** — `wss://neo4j-bolt.contoso.com/` (for Cypher queries via Neo4j Browser)
+
 
 ## Output
 
@@ -255,19 +355,52 @@ These are matched case-insensitively against the full file path (both folder nam
 
 ## Data Model (Neo4j)
 
+### Data Model
+
 ```
 (:User)-[:OWNS]->(:Site)-[:CONTAINS]->(:File)
 (:File)-[:SHARED_WITH {riskLevel, sharingType, role, grantedBy, ...}]->(:User)
+(:File)-[:SHARED_WITH {riskLevel, sharingType, role, grantedBy, ...}]->(:Group)->[:CONTAINS*0..]->(:User)
 (:ScanRun)-[:FOUND]->(:File)
 ```
 
-- **User** — email, displayName, source
+- **User** — id, email, displayName, source
+- **Group** — id, displayName, source
 - **Site** — OneDrive or SharePoint site (siteId, name, webUrl, source)
 - **File** — driveId, itemId, path, webUrl, type (File/Folder)
 - **SHARED_WITH** — sharing relationship: sharingType, sharedWithType, role, riskLevel, createdDateTime, grantedBy, lastSeenRunId
 - **ScanRun** — collection run with runId, timestamp, and status
 
 The `grantedBy` field on `SHARED_WITH` stores the email of the user who created the sharing permission (extracted from Graph API's `grantedByV2`). This is used by the webapp to show each user only the files they personally shared.
+
+### Advanced Neo4j queries
+
+Find all files shared with external users :
+
+```cypher
+MATCH path = (f:File)-[:SHARED_WITH]->()-[:CONTAINS*0..]->(u:User {source:"External"})
+RETURN path
+```
+
+Find all files shared with external users and exclude a specific domain:
+
+```cypher
+MATCH path = (f:File)-[:SHARED_WITH]->()-[:CONTAINS*0..]->(u:User
+ {source:"External"})
+WITH path, f, collect(u) AS users
+WHERE NONE(x IN users WHERE x.email CONTAINS "@specific-domain-excluded.com")
+RETURN path
+```
+
+Find all files shared with more than 20 users:
+
+```cypher
+MATCH path = (f:File)-[r:SHARED_WITH]->()-[:CONTAINS*0..]->(u:User)
+WITH f, count(r) AS n, collect(u.email) AS users, collect(path) as paths
+WHERE n > 20
+RETURN f.path, users, n, paths
+ORDER BY n DESC
+```
 
 ## Helm Chart (Kubernetes)
 

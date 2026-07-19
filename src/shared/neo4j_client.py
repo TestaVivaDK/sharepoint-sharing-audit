@@ -1,10 +1,12 @@
 """Neo4j connection, schema initialization, and MERGE helpers."""
 
+import logging
 import uuid
 from datetime import datetime, timezone
 
 from neo4j import GraphDatabase
 
+logger = logging.getLogger(__name__)
 
 class Neo4jClient:
     def __init__(self, uri: str, user: str, password: str):
@@ -24,6 +26,7 @@ class Neo4jClient:
         """Create constraints and indexes for the graph schema."""
         constraints = [
             "CREATE CONSTRAINT IF NOT EXISTS FOR (u:User) REQUIRE u.email IS UNIQUE",
+            "CREATE CONSTRAINT IF NOT EXISTS FOR (g:Group) REQUIRE g.id IS UNIQUE",
             "CREATE CONSTRAINT IF NOT EXISTS FOR (s:Site) REQUIRE s.siteId IS UNIQUE",
             "CREATE CONSTRAINT IF NOT EXISTS FOR (r:ScanRun) REQUIRE r.runId IS UNIQUE",
             "CREATE INDEX IF NOT EXISTS FOR (f:File) ON (f.driveId, f.itemId)",
@@ -55,12 +58,22 @@ class Neo4jClient:
             {"runId": run_id},
         )
 
-    def merge_user(self, email: str, display_name: str, source: str):
+    def merge_user(self, id: str, email: str, display_name: str, source: str):
         """Upsert a User node."""
         self.execute(
-            "MERGE (u:User {email: $email}) SET u.displayName = $name, u.source = $source",
-            {"email": email, "name": display_name, "source": source},
+            "MERGE (u:User {id: $userId, email: $email}) SET u.displayName = $name, u.source = $source",
+            {"userId": id, "email": email, "name": display_name, "source": source},
         )
+
+    def merge_group(self, id: str, display_name: str, source: str):
+        """Upsert a Group node."""
+        try:
+            self.execute(
+                "MERGE (g:Group {id: $groupId}) SET g.displayName = $name, g.source = $source",
+                {"groupId": id, "name": display_name, "source": source},
+            )
+        except Exception as e:
+            logger.error(f"NEO4J WRITE ERROR - merge_group: {str(e)}")
 
     def merge_site(self, site_id: str, name: str, web_url: str, source: str):
         """Upsert a Site node."""
@@ -99,30 +112,33 @@ class Neo4jClient:
         granted_by: str = "",
     ):
         """Upsert a SHARED_WITH relationship between a File and a User."""
-        self.execute(
-            """MATCH (f:File {driveId: $driveId, itemId: $itemId})
-               MATCH (u:User {email: $email})
-               MERGE (f)-[s:SHARED_WITH]->(u)
-               SET s.sharingType = $sharingType,
-                   s.sharedWithType = $sharedWithType,
-                   s.role = $role,
-                   s.riskLevel = $riskLevel,
-                   s.createdDateTime = $created,
-                   s.lastSeenRunId = $runId,
-                   s.grantedBy = $grantedBy""",
-            {
-                "driveId": drive_id,
-                "itemId": item_id,
-                "email": user_email,
-                "sharingType": sharing_type,
-                "sharedWithType": shared_with_type,
-                "role": role,
-                "riskLevel": risk_level,
-                "created": created_date_time,
-                "runId": run_id,
-                "grantedBy": granted_by,
-            },
-        )
+        try:
+            self.execute(
+                """MATCH (f:File {driveId: $driveId, itemId: $itemId})
+                MATCH (u:User {email: $email})
+                MERGE (f)-[s:SHARED_WITH]->(u)
+                SET s.sharingType = $sharingType,
+                    s.sharedWithType = $sharedWithType,
+                    s.role = $role,
+                    s.riskLevel = $riskLevel,
+                    s.createdDateTime = $created,
+                    s.lastSeenRunId = $runId,
+                    s.grantedBy = $grantedBy""",
+                {
+                    "driveId": drive_id,
+                    "itemId": item_id,
+                    "email": user_email,
+                    "sharingType": sharing_type,
+                    "sharedWithType": shared_with_type,
+                    "role": role,
+                    "riskLevel": risk_level,
+                    "created": created_date_time,
+                    "runId": run_id,
+                    "grantedBy": granted_by,
+                },
+            )
+        except Exception as e:
+            logger.error(f"NEO4J WRITE ERROR - merge_shared_with: {str(e)}")
 
     def merge_contains(self, site_id: str, drive_id: str, item_id: str):
         """Create CONTAINS relationship between Site and File."""
@@ -160,6 +176,7 @@ class Neo4jClient:
         web_url: str,
         file_type: str,
         user_email: str,
+        user_id: str,
         user_display_name: str,
         user_source: str,
         sharing_type: str,
@@ -171,48 +188,168 @@ class Neo4jClient:
         granted_by: str = "",
     ):
         """Upsert File, User, SHARED_WITH, CONTAINS, and FOUND in a single transaction."""
-        self.execute(
-            """
-            MERGE (f:File {driveId: $driveId, itemId: $itemId})
-            SET f.path = $path, f.webUrl = $webUrl, f.type = $fileType
-            WITH f
-            MERGE (u:User {email: $userEmail})
-            SET u.displayName = $userName, u.source = $userSource
-            WITH f, u
-            MERGE (f)-[s:SHARED_WITH]->(u)
-            SET s.sharingType = $sharingType,
-                s.sharedWithType = $sharedWithType,
-                s.role = $role,
-                s.riskLevel = $riskLevel,
-                s.createdDateTime = $created,
-                s.lastSeenRunId = $runId,
-                s.grantedBy = $grantedBy
-            WITH f
-            MATCH (site:Site {siteId: $siteId})
-            MERGE (site)-[:CONTAINS]->(f)
-            WITH f
-            MATCH (r:ScanRun {runId: $runId})
-            MERGE (r)-[:FOUND]->(f)
-            """,
-            {
-                "driveId": drive_id,
-                "itemId": item_id,
-                "path": item_path,
-                "webUrl": web_url,
-                "fileType": file_type,
-                "userEmail": user_email,
-                "userName": user_display_name,
-                "userSource": user_source,
-                "sharingType": sharing_type,
-                "sharedWithType": shared_with_type,
-                "role": role,
-                "riskLevel": risk_level,
-                "created": created_date_time,
-                "runId": run_id,
-                "grantedBy": granted_by,
-                "siteId": site_id,
-            },
-        )
+        try:
+            if (shared_with_type == "Group"):
+                logger.debug(f"NEO4J CLIENT - SHARED WITH GROUP: {user_id} - {user_display_name}")
+
+                self.execute(
+                    """
+                    MERGE (f:File {driveId: $driveId, itemId: $itemId})
+                    SET f.path = $path, f.webUrl = $webUrl, f.type = $fileType
+                    WITH f
+                    MERGE (g:Group {id: $userId, displayName: $userName})
+                    SET g.id = $userId, g.displayName = $userName, g.source = $userSource
+                    WITH f, g
+                    MERGE (f)-[s:SHARED_WITH]->(g)
+                    SET s.sharingType = $sharingType,
+                        s.sharedWithType = $sharedWithType,
+                        s.role = $role,
+                        s.riskLevel = $riskLevel,
+                        s.createdDateTime = $created,
+                        s.lastSeenRunId = $runId,
+                        s.grantedBy = $grantedBy
+                    WITH f
+                    MATCH (site:Site {siteId: $siteId})
+                    MERGE (site)-[:CONTAINS]->(f)
+                    WITH f
+                    MATCH (r:ScanRun {runId: $runId})
+                    MERGE (r)-[:FOUND]->(f)
+                    """,
+                    {
+                        "driveId": drive_id,
+                        "itemId": item_id,
+                        "path": item_path,
+                        "webUrl": web_url,
+                        "fileType": file_type,
+                        "userEmail": user_email,
+                        "userId": user_id,
+                        "userName": user_display_name,
+                        "userSource": user_source,
+                        "sharingType": sharing_type,
+                        "sharedWithType": shared_with_type,
+                        "role": role,
+                        "riskLevel": risk_level,
+                        "created": created_date_time,
+                        "runId": run_id,
+                        "grantedBy": granted_by,
+                        "siteId": site_id,
+                    },
+                )
+                
+            else:
+                #logger.info(f"NEO4J CLIENT - SHARED WITH USER {user_id}")
+                self.execute(
+                    """
+                    MERGE (f:File {driveId: $driveId, itemId: $itemId})
+                    SET f.path = $path, f.webUrl = $webUrl, f.type = $fileType
+                    WITH f
+                    MERGE (u:User {id: $userId, email: $userEmail})
+                    SET u.id = $userId, u.displayName = $userName, u.source = $userSource
+                    WITH f, u
+                    MERGE (f)-[s:SHARED_WITH]->(u)
+                    SET s.sharingType = $sharingType,
+                        s.sharedWithType = $sharedWithType,
+                        s.role = $role,
+                        s.riskLevel = $riskLevel,
+                        s.createdDateTime = $created,
+                        s.lastSeenRunId = $runId,
+                        s.grantedBy = $grantedBy
+                    WITH f
+                    MATCH (site:Site {siteId: $siteId})
+                    MERGE (site)-[:CONTAINS]->(f)
+                    WITH f
+                    MATCH (r:ScanRun {runId: $runId})
+                    MERGE (r)-[:FOUND]->(f)
+                    """,
+                    {
+                        "driveId": drive_id,
+                        "itemId": item_id,
+                        "path": item_path,
+                        "webUrl": web_url,
+                        "fileType": file_type,
+                        "userEmail": user_email,
+                        "userId": user_id,
+                        "userName": user_display_name,
+                        "userSource": user_source,
+                        "sharingType": sharing_type,
+                        "sharedWithType": shared_with_type,
+                        "role": role,
+                        "riskLevel": risk_level,
+                        "created": created_date_time,
+                        "runId": run_id,
+                        "grantedBy": granted_by,
+                        "siteId": site_id,
+                    },
+                )
+        except Exception as e:
+            logger.error(f"NEO4J WRITE ERROR - merge_permission: {str(e)}")
+
+
+    def merge_group_member(
+        self,
+        group_id: str,
+        user_email: str,
+        user_id: str,
+        user_display_name: str,
+        user_source: str,
+        run_id: str,
+    ):
+        """Upsert Group, User, CONTAINS, and FOUND in a single transaction."""
+        logger.debug(f"NEO4J CLIENT - GROUP MEMBERSHIP: {group_id} - {user_id} {user_display_name} {user_email} {user_source} {run_id}")
+        try:
+            self.execute(
+                """
+                MERGE (u:User {email: $userEmail})
+                SET u.id = $userId, u.displayName = $userName, u.source = $userSource
+                WITH u
+                MATCH (g:Group {id: $groupId})
+                MERGE (g)-[s:CONTAINS]->(u)
+                SET s.lastSeenRunId = $runId
+                """,
+                {
+                    "groupId": group_id,
+                    "userEmail": user_email,
+                    "userId": user_id,
+                    "userName": user_display_name,
+                    "userSource": user_source,
+                    "runId": run_id,
+                },
+            )
+        except Exception as e:
+            logger.error(f"NEO4J WRITE ERROR - merge_group_member: {str(e)}")
+
+    def merge_nested_group(
+        self,
+        group_id: str,
+        user_id: str,
+        user_display_name: str,
+        user_source: str,
+        run_id: str,
+    ):
+        """Upsert Group, User, CONTAINS, and FOUND in a single transaction."""
+        logger.debug(f"NEO4J CLIENT - NESTED GROUP: {group_id} - {user_id} {user_display_name}{user_source} {run_id}")
+
+        try:
+            self.execute(
+                """
+                MERGE (ng:Group {id: $userId, displayName: $userName})
+                SET ng.id = $userId, ng.displayName = $userName, ng.source = $userSource
+                WITH ng
+                MATCH (g:Group {id: $groupId})
+                MERGE (g)-[s:CONTAINS]->(ng)
+                SET s.lastSeenRunId = $runId
+                """,
+                {
+                    "groupId": group_id,
+                    "userId": user_id,
+                    "userName": user_display_name,
+                    "userSource": user_source,
+                    "runId": run_id,
+                },
+            )
+        except Exception as e:
+            logger.error(f"NEO4J WRITE ERROR - merge_nested_group: {str(e)}")
+
 
     def save_delta_link(self, drive_id: str, delta_link: str):
         """Store or update the delta link for a drive."""
@@ -231,7 +368,7 @@ class Neo4jClient:
         )
         return result[0]["deltaLink"] if result else None
 
-    def remove_file_permissions(self, drive_id: str, item_id: str, run_id: str):
+    def remove_file_permissions_and_delete(self, drive_id: str, item_id: str, run_id: str):
         """Remove sharing relationships and mark a deleted file."""
         self.execute(
             """MATCH (f:File {driveId: $driveId, itemId: $itemId})
@@ -239,6 +376,15 @@ class Neo4jClient:
                DELETE s
                SET f.deletedAt = datetime(), f.deletedByRunId = $runId""",
             {"driveId": drive_id, "itemId": item_id, "runId": run_id},
+        )
+        
+    def remove_file_permissions(self, drive_id: str, item_id: str):
+        """Remove sharing relationships"""
+        self.execute(
+            """MATCH (f:File {driveId: $driveId, itemId: $itemId})
+               OPTIONAL MATCH (f)-[s:SHARED_WITH]->()
+               DELETE s""",
+            {"driveId": drive_id, "itemId": item_id},
         )
 
     def remove_shared_with(self, drive_id: str, item_id: str):

@@ -83,11 +83,7 @@ def deduplicate_records(
         if tag_teams and is_teams_chat_file(g["item_path"]) and source == "OneDrive":
             source = "Teams"
 
-        risk_level = get_risk_level(
-            sharing_type=g["sharing_types"][0] if g["sharing_types"] else "",
-            shared_with_type=worst_swt,
-            item_path=g["item_path"],
-        )
+        risk_level = g["risk_level"] 
         risk_score = compute_risk_score(
             shared_with_type=worst_swt,
             sharing_type=g["sharing_types"][0] if g["sharing_types"] else "",

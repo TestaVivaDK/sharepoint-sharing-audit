@@ -3,10 +3,17 @@ services:
     image: neo4j:5-community
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-changeme}
+      NEO4J_server_bolt_tls__level: OPTIONAL
+      NEO4J_dbms_ssl_policy_bolt_enabled: true
+      NEO4J_dbms_ssl_policy_bolt_private__key: /var/lib/neo4j/certificates/bolt/server.key
+      NEO4J_dbms_ssl_policy_bolt_public__certificate: /var/lib/neo4j/certificates/bolt/server.crt
+      NEO4J_dbms_ssl_policy_bolt_client_auth: NONE
+      NEO4J_dbms_ssl_policy_https_client_auth: NONE
     ports:
       - "7474:7474"
       - "7687:7687"
     volumes:
+      - ./neo4j-conf/certificates:/var/lib/neo4j/certificates
       - neo4j-data:/data
     healthcheck:
       test: ["CMD", "neo4j", "status"]
@@ -59,9 +66,34 @@ services:
       TENANT_DOMAIN: ${TENANT_DOMAIN}
     ports:
       - "8000:8000"
+    healthcheck:
+      test: ["CMD", "printf", "GET / HTTP/1.1\n\n", ">", "/dev/tcp/127.0.0.1/8000"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
     depends_on:
       neo4j:
         condition: service_healthy
 
+  apache2:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.apache2
+    environment:
+      WEBAPP_FQDN: ${WEBAPP_FQDN}
+      NEO4J_BROWSER_FQDN: ${NEO4J_BROWSER_FQDN}
+      NEO4J_BOLT_FQDN: ${NEO4J_BOLT_FQDN}
+      NEO4J_ADMIN_RESTRICTED_IP: ${NEO4J_ADMIN_RESTRICTED_IP}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./apache2/server.crt:/usr/local/apache2/conf/server.crt
+      - ./apache2/server.key:/usr/local/apache2/conf/server.key
+    depends_on:
+      webapp:
+        condition: service_healthy
+
 volumes:
   neo4j-data:
+  

@@ -1,0 +1,8 @@
+FROM httpd:2.4.67-alpine
+COPY ./apache2/httpd.conf /usr/local/apache2/conf/httpd.conf
+COPY ./apache2/httpd-ssl.conf /usr/local/apache2/conf/extra/httpd-ssl.conf
+COPY ./apache2/entrypoint.sh /usr/local/bin/entrypoint.sh
+
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+ENTRYPOINT ["/bin/sh", "/usr/local/bin/entrypoint.sh"]
