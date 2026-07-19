@@ -17,26 +17,33 @@ The goal is to get your tenant to a clean sharing baseline before you turn on AI
 ## Architecture
 
 ```
-┌─────────────┐      Microsoft       ┌─────────┐      ┌──────────┐
-│  Collector   │─────Graph API───────▶│  Neo4j  │◀─────│ Reporter │
-│  (Python)    │   app-only auth      │  (graph │      │ (Python) │
-│              │   OneDrive + SP      │   DB)   │      │          │
-└─────────────┘   permissions         └─────────┘      └────┬─────┘
-                                           ▲                 │
-                                           │          ┌──────┴──────┐
-                                      ┌────┴─────┐   │  PDF + CSV  │
-                                      │  Webapp   │   │   reports   │
-                                      │ FastAPI + │   └─────────────┘
-                                      │  React    │
-                                      └──────────┘
-                                       delegated
-                                       auth (MSAL)
+┌─────────────┐      Microsoft        ┌────────────┐      ┌──────────┐
+│  Collector  │──────Graph API───────▶│  Neo4j     │◀────│ Reporter │
+│  (Python)   │    app-only auth      │  (graph    │      │ (Python) │
+│             │    OneDrive + SP      │   DB)      │      │          │
+└─────────────┘   permissions         └────────────┘      └─────┬────┘
+                                        ▲       ▲               │
+                                        │       │            ┌──┴──────────┐
+                                        │  ┌────┴────────┐   │  PDF + CSV  │
+                                        │  │  Webapp     │   │   reports   │
+                                        │  │  FastAPI +  │   └─────────────┘
+                                        │  │  React      │
+                                        │  └─────────────┘
+                                        │   delegated   ▲
+                                        │   auth (MSAL) │
+                                        │               │               
+                                   ┌────┴───────────────────┐
+                                   │  Apache2 reverse-proxy │
+                                   │        Port 443        │
+                                   │                        │
+                                   └────────────────────────┘
 ```
 
 - **Collector** — Walks OneDrive and SharePoint drives via Microsoft Graph API, collects all explicit (non-inherited) sharing permissions, and stores them as a graph in Neo4j. Tracks who granted each permission via `grantedBy`.
 - **Reporter** — Queries Neo4j, deduplicates files, computes risk scores (0–100), and generates a combined PDF + CSV report for admins.
 - **Webapp** — React SPA with FastAPI backend. Users log in with their Microsoft Entra account, see only the files *they* shared (via `grantedBy`), and can bulk-unshare via the Graph API using delegated permissions.
 - **Neo4j** — Stores users, files, sites, and sharing relationships as a graph. Supports incremental collection with scan runs.
+- **Apache2 reverse-proxy**: The Apache2 container acts as a secure reverse proxy (SSL/TLS termination) and routes traffic to webapp and neo4j admin interfaces.
 
 ## Prerequisites
 
@@ -179,13 +186,99 @@ The frontend also needs `VITE_CLIENT_ID` and `VITE_TENANT_ID` at build time (set
 Run the full pipeline with Docker:
 
 ```bash
-docker compose up neo4j -d        # Start Neo4j
+docker compose up neo4j -d         # Start Neo4j
 docker compose run collector       # Run collection
 docker compose run reporter        # Generate reports
 docker compose up webapp -d        # Start the webapp on port 8000
+docker compose up -d apache2          # Start the apache2 reverse proxy listening on port 80 and 443
 ```
 
 Reports are saved to the `./reports/` directory.
+
+### Apache2 Reverse Proxy
+
+The Apache2 container acts as a secure reverse proxy (SSL/TLS termination) and routes traffic to multiple backend services. It enables:
+
+- **HTTPS encryption** for the webapp and Neo4j services
+- **Name-based virtual hosting** with separate FQDNs for each service
+- **WebSocket proxying** for Neo4j Bolt protocol connections
+- **IP-based access restrictions** for sensitive Neo4j interfaces
+
+#### Architecture
+
+The Apache2 container exposes three virtual hosts on port 443 (HTTPS):
+
+| Virtual Host | Backend | Purpose | Env Var |
+|--------------|---------|---------|---------|
+| `WEBAPP_FQDN` | `webapp:8000` | Main sharing audit web application | `WEBAPP_FQDN` |
+| `NEO4J_BROWSER_FQDN` | `neo4j:7474/browser` | Neo4j Browser UI (admin interface) | `NEO4J_BROWSER_FQDN` |
+| `NEO4J_BOLT_FQDN` | `neo4j:7687` | Neo4j Bolt protocol (WebSocket) | `NEO4J_BOLT_FQDN` |
+
+#### Environment Variables
+
+| Variable | Required | Description | Example |
+|----------|----------|-------------|---------|
+| `WEBAPP_FQDN` | Yes | Fully qualified domain name for the webapp | `audit.contoso.com` |
+| `NEO4J_BROWSER_FQDN` | Yes | FQDN for Neo4j Browser UI | `neo4j-browser.contoso.com` |
+| `NEO4J_BOLT_FQDN` | Yes | FQDN for Neo4j Bolt protocol (used by Neo4j Browser) | `neo4j-bolt.contoso.com` |
+| `NEO4J_ADMIN_RESTRICTED_IP` | Yes | IP address or CIDR range allowed to access Neo4j admin interfaces | `203.0.113.42` or `203.0.113.0/24` |
+
+#### SSL Certificates
+
+The container requires self-signed or CA-signed SSL certificates:
+
+```bash
+# Generate self-signed certificates (for testing only)
+openssl req -x509 -newkey rsa:2048 -keyout apache2/server.key -out apache2/server.crt -days 365 -nodes
+
+# For production, obtain certificates from a trusted CA
+# and place them in apache2/server.crt and apache2/server.key
+```
+
+Certificates are mounted into the container at:
+- `/usr/local/apache2/conf/server.crt` — certificate file
+- `/usr/local/apache2/conf/server.key` — private key
+
+#### Entrypoint Behavior
+
+The container's entrypoint script (`apache2/entrypoint.sh`) performs **environment variable substitution** at startup:
+
+1. Replaces `__WEBAPP_FQDN__` with the value of `WEBAPP_FQDN`
+2. Replaces `__NEO4J_BROWSER_FQDN__` with the value of `NEO4J_BROWSER_FQDN`
+3. Replaces `__NEO4J_BOLT_FQDN__` with the value of `NEO4J_BOLT_FQDN`
+4. Replaces `__NEO4J_ADMIN_RESTRICTED_IP__` with the value of `NEO4J_ADMIN_RESTRICTED_IP`
+5. Starts Apache2 in foreground mode
+
+This allows the configuration to be dynamically adapted at runtime without rebuilding the container.
+
+#### Security
+
+- **IP Restriction** — Access to Neo4j Browser and Bolt proxy is restricted to the IP(s) specified in `NEO4J_ADMIN_RESTRICTED_IP`
+- **TLS/SSL** — All traffic uses TLS 1.2+ (SSLv3 and TLS 1.0/1.1 are disabled)
+- **Cipher Suites** — HIGH and MEDIUM strength ciphers only; weak ciphers (MD5, RC4, 3DES) are disabled
+- **Proxy Security** — `ProxyRequests Off` prevents open proxy exploitation
+
+#### Usage Example
+
+```bash
+# Set environment variables in .env
+export WEBAPP_FQDN=audit.contoso.com
+export NEO4J_BROWSER_FQDN=neo4j-browser.contoso.com
+export NEO4J_BOLT_FQDN=neo4j-bolt.contoso.com
+export NEO4J_ADMIN_RESTRICTED_IP=203.0.113.42
+
+# Generate self-signed certificates
+openssl req -x509 -newkey rsa:2048 -keyout apache2/server.key -out apache2/server.crt -days 365 -nodes
+
+# Start the stack
+docker compose up neo4j webapp apache2
+```
+
+Once running, access:
+- **Webapp** — `https://audit.contoso.com`
+- **Neo4j Browser** — `https://neo4j-browser.contoso.com/browser` (restricted to `203.0.113.42`)
+- **Neo4j Bolt** — `wss://neo4j-bolt.contoso.com/` (for Cypher queries via Neo4j Browser)
+
 
 ## Output
 
